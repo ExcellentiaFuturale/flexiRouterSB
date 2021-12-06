@@ -60,6 +60,32 @@ enum {
  */
 dpo_type_t tap_inject_dpo_type;
 
+/* increment TTL & update checksum.
+   Works either endian, so no need for byte swap. */
+static_always_inline void
+ip4_ttl_inc (vlib_buffer_t * b, ip4_header_t * ip)
+{
+  i32 ttl;
+  u32 checksum;
+  if (PREDICT_FALSE (b->flags & VNET_BUFFER_F_LOCALLY_ORIGINATED))
+    return;
+
+  ttl = ip->ttl;
+
+  checksum = ip->checksum - clib_host_to_net_u16 (0x0100);
+  checksum += checksum >= 0xffff;
+
+  ip->checksum = checksum;
+  ttl += 1;
+  ip->ttl = ttl;
+#ifdef FLEXIWAN_FIX
+  if (ip->checksum)
+    ASSERT (ip4_header_checksum_is_valid (ip));
+#else
+  ASSERT (ip4_header_checksum_is_valid (ip));
+#endif
+}
+
 #ifdef FLEXIWAN_FIX
 static inline void
 tap_inject_tap_send_buffer (vlib_main_t * vm, int fd, vlib_buffer_t * b)
@@ -378,6 +404,21 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
     }
 
   b = vlib_get_buffer (vm, bi[0]);
+
+  // The Flexiwan peer feature pushes Linux packets into
+  // ip4-input node and not into loopX-output.
+  // As a result, they go through the forwarding, where TTL is decremented.
+  // As OSPF negotiation rides on multicast packets with TTL=1,
+  // the forwarding decrements TLL to zero and drops the packets.
+  // To prevent this, we just set TTL to be 2, so OSPF packets for peer tunnels
+  // will be not dropped.
+  if (tap_inject_type_get(sw_if_index) == IFF_TUN) {
+    ip4_header_t *ip = vlib_buffer_get_current (b);
+    if (PREDICT_FALSE (ip->protocol == IP_PROTOCOL_OSPF && ip->ttl == 1))
+    {
+      ip4_ttl_inc (b, ip);
+    }
+  }
 
   vnet_buffer (b)->sw_if_index[VLIB_RX] = sw_if_index;
   // TX interface index is needed for TAP type because the packets
