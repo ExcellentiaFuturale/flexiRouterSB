@@ -212,6 +212,59 @@ VLIB_REGISTER_NODE (tap_inject_tx_node) = {
 };
 
 #ifdef FLEXIWAN_FIX
+/*
+  The purpose of this node is to intercept PPPoE packets in VPP and push them into Linux.
+
+  Firstly, the packet is received on VPP WAN interface and is intercepted by the
+  due to ethernet_register_input_type (vm, ETHERNET_TYPE_PPPOE_X).
+  And secondly, the node pushes the packet into Linux through the WAN TAP interface.
+
+  There the packet is de-capsulated and pushed by Linux back into the WAN TAP interface.
+*/
+static uword
+tap_inject_pppoe_tx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f)
+{
+  vlib_buffer_t * b;
+  u32 * pkts;
+  u32 fd;
+  u32 i;
+
+  pkts = vlib_frame_vector_args (f);
+
+  for (i = 0; i < f->n_vectors; ++i)
+    {
+      b = vlib_get_buffer (vm, pkts[i]);
+
+      fd = tap_inject_lookup_tap_fd (vnet_buffer (b)->sw_if_index[VLIB_RX]);
+      if (fd == ~0) {
+        clib_warning("FD is unknown, VLIB_RX %u", vnet_buffer (b)->sw_if_index[VLIB_RX]);
+        continue;
+    }
+
+      vlib_buffer_advance (b, -sizeof(ethernet_header_t));
+      tap_inject_tap_send_buffer (vm, fd, b);
+    }
+
+  vlib_buffer_free (vm, pkts, f->n_vectors);
+  return f->n_vectors;
+}
+
+VLIB_REGISTER_NODE (tap_inject_pppoe_tx_node) = {
+  .function = tap_inject_pppoe_tx,
+  .name = "tap-inject-pppoe-tx",
+  .vector_size = sizeof (u32),
+  .type = VLIB_NODE_TYPE_INTERNAL,
+};
+
+/* *INDENT-OFF* */
+VNET_FEATURE_INIT (tap_inject_pppoe_tx_node, static) =
+{
+  .arc_name = "device-input",
+  .node_name = "tap-inject-pppoe-tx",
+  .runs_before = VNET_FEATURES ("ethernet-input"),
+};
+/* *INDENT-ON */
+
 VNET_FEATURE_INIT (tap_inject_tx_node, static) = {
   .arc_name = "ip4-punt",
   .node_name = "tap-inject-tx",

@@ -41,6 +41,7 @@
 
 static tap_inject_main_t tap_inject_main;
 extern dpo_type_t tap_inject_dpo_type;
+extern vlib_node_registration_t tap_inject_pppoe_tx_node;
 
 tap_inject_main_t *
 tap_inject_get_main (void)
@@ -76,6 +77,20 @@ tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index)
   im->tap_fd_to_sw_if_index[tap_fd] = sw_if_index;
 
   hash_set (im->tap_if_index_to_sw_if_index, tap_if_index, sw_if_index);
+}
+
+void tap_inject_map_tap_if_index_to_sw_if_index (u32 tap_if_index, u32 sw_if_index)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+
+  hash_set (im->tap_if_index_to_sw_if_index, tap_if_index, sw_if_index);
+}
+
+void tap_inject_unmap_tap_if_index_to_sw_if_index (u32 tap_if_index)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+
+  hash_unset (im->tap_if_index_to_sw_if_index, tap_if_index);
 }
 
 void tap_inject_map_interface_set (u32 src_sw_if_index, u32 dst_sw_if_index)
@@ -246,6 +261,12 @@ tap_inject_enable (void)
 
   ip4_register_protocol (IP_PROTOCOL_OSPF, im->tx_node_index);
   ip4_register_protocol (IP_PROTOCOL_TCP, im->tx_node_index);
+
+  ethernet_register_input_type (vm, ETHERNET_TYPE_PPPOE_SESSION,
+                                tap_inject_pppoe_tx_node.index);
+
+  ethernet_register_input_type (vm, ETHERNET_TYPE_PPPOE_DISCOVERY,
+                                tap_inject_pppoe_tx_node.index);
 #ifdef FLEXIWAN_FIX
   // Issue: all UDP traffic is captured by tap-inject before VxLan node intercepts it.
   //        as a result VxLAN tunnel that sits on BVI bridge with TAP interface does not work.
@@ -836,3 +857,68 @@ tap_inject_config (vlib_main_t * vm, unformat_input_t * input)
 }
 
 VLIB_CONFIG_FUNCTION (tap_inject_config, "tap-inject");
+
+/*
+  This CLI command is used in the form of 'tap-inject map tap ppp0/ifindex tun0' in PPPoE feature.
+  As a result all the routes installed against pppX interface in Linux are mapped inside VPP against tun0.
+*/
+static clib_error_t *
+tap_inject_map_tap_if_index_to_sw_if_index_cli(vlib_main_t *vm, unformat_input_t *input,
+                                               vlib_cli_command_t *cmd)
+{
+  unformat_input_t _line_input, *line_input = &_line_input;
+  u32 tap_if_index = ~0;
+  u32 sw_if_index = ~0;
+  i32 is_del = 0;
+  clib_error_t *error = 0;
+
+  if (!unformat_user(input, unformat_line_input, line_input))
+    return 0;
+
+  while (unformat_check_input(line_input) != UNFORMAT_END_OF_INPUT)
+  {
+    if (unformat(line_input, "%u %U",
+                 &tap_if_index,
+                 unformat_vnet_sw_interface, vnet_get_main(), &sw_if_index))
+      ;
+    else if (unformat(line_input, "del"))
+      is_del = 1;
+    else
+    {
+      error = clib_error_return(0, "unknown input '%U'",
+                                format_unformat_error, line_input);
+      goto done;
+    }
+  }
+
+  if (sw_if_index == ~0)
+  {
+    error = clib_error_return(0, "Invalid sw_if_index");
+    goto done;
+  }
+
+  if (tap_if_index == ~0)
+  {
+    error = clib_error_return(0, "Invalid tap_if_index");
+    goto done;
+  }
+
+  if (is_del)
+  {
+    tap_inject_unmap_tap_if_index_to_sw_if_index(tap_if_index);
+  }
+  else
+  {
+    tap_inject_map_tap_if_index_to_sw_if_index(tap_if_index, sw_if_index);
+  }
+
+done:
+  unformat_free(line_input);
+  return error;
+}
+
+VLIB_CLI_COMMAND(tap_inject_map_tap_cmd, static) = {
+    .path = "tap-inject map tap",
+    .short_help = "tap-inject map tap <tap_if_index> <interface> [del]",
+    .function = tap_inject_map_tap_if_index_to_sw_if_index_cli,
+};
