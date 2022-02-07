@@ -85,6 +85,9 @@ void tap_inject_map_tap_if_index_to_sw_if_index (u32 tap_if_index, u32 sw_if_ind
   tap_inject_main_t * im = tap_inject_get_main ();
 
   hash_set (im->tap_if_index_to_sw_if_index, tap_if_index, sw_if_index);
+
+  vec_validate_init_empty (im->sw_if_index_to_tap_if_index, sw_if_index, ~0);
+  im->sw_if_index_to_tap_if_index[sw_if_index] = tap_if_index;
 }
 
 void tap_inject_unmap_tap_if_index_to_sw_if_index (u32 tap_if_index)
