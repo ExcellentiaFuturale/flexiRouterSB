@@ -33,6 +33,8 @@
 #define ETHER_ADDR_LEN 6
 #endif
 
+extern vnet_hw_interface_class_t tun_device_hw_interface_class;
+
 typedef struct {
   /*
    * tap-inject can be enabled or disabled in config file or during runtime.
@@ -107,8 +109,8 @@ u32 tap_inject_lookup_sw_if_index_from_tap_if_index (u32 tap_if_index);
 
 
 #ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
-u32 tap_inject_lookup_ip4_output_from_sw_if_index (u32 sw_if_index);
-void tap_inject_set_ip4_output (u32 sw_if_index, u32 enable);
+u32 tap_inject_is_enabled_ip4_output (u32 sw_if_index);
+void tap_inject_enable_ip4_output (u32 sw_if_index, u32 enable);
 #endif /* FLEXIWAN_FEATURE */
 
 u32 tap_inject_type_get (u32 sw_if_index);

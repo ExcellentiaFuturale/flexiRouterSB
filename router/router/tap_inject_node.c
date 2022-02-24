@@ -465,7 +465,8 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
   // the forwarding decrements TLL to zero and drops the packets.
   // To prevent this, we just set TTL to be 2, so OSPF packets for peer tunnels
   // will be not dropped.
-  if (tap_inject_type_get(sw_if_index) == IFF_TUN) {
+  if (!tap_inject_is_enabled_ip4_output(sw_if_index) &&
+      tap_inject_type_get(sw_if_index) == IFF_TUN) {
     ip4_header_t *ip = vlib_buffer_get_current (b);
     if (PREDICT_FALSE (ip->protocol == IP_PROTOCOL_OSPF && ip->ttl == 1))
     {
@@ -474,13 +475,14 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
   }
 
   vnet_buffer (b)->sw_if_index[VLIB_RX] = sw_if_index;
-  // TX interface index is needed for TAP type because the packets
-  // are inserted in output node.
-  // But in case of TUN (used for Flexiwan peer tunnels) packets are inserted in ip4-input node
-  // and no TX interafce should be known on this stage.
-  if (tap_inject_type_get(sw_if_index) == IFF_TUN) {
+  // TX interface index is not needed for packets inserted in 'ip4-input' node
+  // if 'enable-ip4-output' feature is disabled.
+  if (!tap_inject_is_enabled_ip4_output(sw_if_index) &&
+      tap_inject_type_get(sw_if_index) == IFF_TUN) {
     vnet_buffer (b)->sw_if_index[VLIB_TX] = (u32) ~ 0;
   }
+  // TX interface index is needed for packets inserted in 'ip4-output-tap-inject' node
+  // if 'enable-ip4-output' is enabled.
   else {
     vnet_buffer (b)->sw_if_index[VLIB_TX] = sw_if_index;
   }
@@ -516,20 +518,30 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
   u32 output_handoff_index = hw->output_node_index;
   u32 ip4_output_set = 0;
   u16 ip4_output_tap_thread_index;
-  if (tap_inject_lookup_ip4_output_from_sw_if_index(sw_if_index) != ~0)
-    {
+  ip4_header_t *ip4 = NULL;
+
+  if (tap_inject_is_enabled_ip4_output(sw_if_index)) {
+    if (tap_inject_type_get(sw_if_index) == IFF_TAP) {
       ethernet_header_t *eh = vlib_buffer_get_current (b);
-      if (clib_net_to_host_u16 (eh->type) == ETHERNET_TYPE_IP4)
-	{
-	  ip4_header_t *ip4 = vlib_buffer_get_current (b) +
-	    sizeof (ethernet_header_t);
-	  ip4_output_set = 1;
-	  output_handoff_index = im->ip4_output_tap_node_index;
-	  ip4_output_tap_thread_index = im->ip4_output_tap_first_worker_index +
-	    tap_rx_ip4_output_tap_worker_offset (im, ip4);
-          vnet_buffer (b)->ip.save_rewrite_length = sizeof (ethernet_header_t);
-	}
+      if (clib_net_to_host_u16 (eh->type) == ETHERNET_TYPE_IP4) {
+        ip4 = vlib_buffer_get_current (b) + sizeof (ethernet_header_t);
+        vnet_buffer (b)->ip.save_rewrite_length = sizeof (ethernet_header_t);
+        ip4_output_set = 1;
+      }
     }
+    else {
+      ip4 = vlib_buffer_get_current (b);
+      if ((ip4->ip_version_and_header_length & 0xF0) == 0x40) {
+        ip4_output_set = 1;
+      }
+    }
+  }
+
+  if (ip4_output_set) {
+    ip4_output_tap_thread_index = im->ip4_output_tap_first_worker_index +
+                                  tap_rx_ip4_output_tap_worker_offset (im, ip4);
+    output_handoff_index = im->ip4_output_tap_node_index;
+  }
 
   if ((ip4_output_set) && (im->num_workers))
     {
@@ -545,11 +557,12 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
       to_next[0] = bi[0];
       new_frame->n_vectors = 1;
 
-      // For TAP type the packets are inserted into output node.
-      // But in case of TUN (used for Flexiwan peer tunnels) packets are inserted in ip4-input node.
-      if (tap_inject_type_get(sw_if_index) == IFF_TUN) {
+      // Packets are inserted into 'ip4-input' node if 'enable-ip4-output' feature is disabled.
+      if (!tap_inject_is_enabled_ip4_output(sw_if_index) &&
+          tap_inject_type_get(sw_if_index) == IFF_TUN) {
         vlib_put_frame_to_node (vm, im->ip4_input_node_index, new_frame);
       }
+      // Packets are inserted into 'ip4-output-tap-inject' node if 'enable-ip4-output' feature is enabled.
       else {
         vlib_put_frame_to_node (vm, output_handoff_index, new_frame);
       }

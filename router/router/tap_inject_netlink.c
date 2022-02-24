@@ -88,7 +88,13 @@ add_del_link (ns_link_t * l, int is_del)
   if (sw_if_index == ~0)
     return;
 
-  sw = vnet_get_sw_interface (vnet_get_main (), sw_if_index);
+  /* Process case when TAP/TUN is already deleted in VPP.
+     In this case to not crash on vnet_get_sw_interface
+     use vnet_get_sw_interface_or_null instead.
+  */
+  sw = vnet_get_sw_interface_or_null (vnet_get_main (), sw_if_index);
+  if (sw == NULL)
+    return;
 
   flags = sw->flags;
 
