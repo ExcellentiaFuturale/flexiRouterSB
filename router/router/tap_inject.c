@@ -61,7 +61,7 @@ tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index)
   vec_validate_init_empty (im->sw_if_index_to_tap_fd, sw_if_index, ~0);
   vec_validate_init_empty (im->sw_if_index_to_tap_if_index, sw_if_index, ~0);
 #ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
-  vec_validate_init_empty (im->sw_if_index_to_ip4_output, sw_if_index, ~0);
+  vec_validate_init_empty (im->sw_if_index_to_ip4_output, sw_if_index, 0);
   vec_validate_init_empty (im->sw_if_index_to_tap_name, sw_if_index, 0);
   im->sw_if_index_to_tap_name[sw_if_index] = tap_if_name;
   if (!im->tap_if_index_by_name)
@@ -141,8 +141,8 @@ tap_inject_delete_tap (u32 sw_if_index)
   im->sw_if_index_to_tap_if_index[sw_if_index] = ~0;
   im->sw_if_index_to_tap_fd[sw_if_index] = ~0;
 #ifdef FLEXIWAN_FEATURE
-  im->sw_if_index_to_ip4_output[sw_if_index] = ~0;
-  
+  im->sw_if_index_to_ip4_output[sw_if_index] = 0;
+
   if (tap_if_name != NULL)
     {
       hash_unset_mem (im->tap_if_index_by_name, tap_if_name);
@@ -188,16 +188,18 @@ tap_inject_lookup_sw_if_index_from_tap_if_index (u32 tap_if_index)
 
 #ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
 u32
-tap_inject_lookup_ip4_output_from_sw_if_index (u32 sw_if_index)
+tap_inject_is_enabled_ip4_output (u32 sw_if_index)
 {
   tap_inject_main_t * im = tap_inject_get_main ();
+  vec_validate_init_empty (im->sw_if_index_to_ip4_output, sw_if_index, 0);
   return im->sw_if_index_to_ip4_output[sw_if_index];
 }
 
 void
-tap_inject_set_ip4_output (u32 sw_if_index, u32 enable)
+tap_inject_enable_ip4_output (u32 sw_if_index, u32 enable)
 {
   tap_inject_main_t * im = tap_inject_get_main ();
+  vec_validate_init_empty (im->sw_if_index_to_ip4_output, sw_if_index, 0);
   im->sw_if_index_to_ip4_output[sw_if_index] = enable;
 }
 
@@ -344,7 +346,8 @@ tap_inject_iface_isr (vlib_main_t * vm, vlib_node_runtime_t * node,
     {
       hw = vnet_get_hw_interface (vnet_get_main (), *hw_if_index);
 
-      if (hw->hw_class_index == ethernet_hw_interface_class.index)
+      if (hw->hw_class_index == ethernet_hw_interface_class.index ||
+          hw->hw_class_index == tun_device_hw_interface_class.index)
         {
 #ifdef FLEXIWAN_FIX
           if (hw->dev_class_index == gre_device_class.index)
@@ -697,7 +700,7 @@ tap_inject_enable_ip4_output_cli (vlib_main_t * vm, unformat_input_t * input,
     }
   if (is_del)
     {
-      tap_inject_set_ip4_output (sw_if_index, ~0);
+      tap_inject_enable_ip4_output (sw_if_index, 0);
     }
   else
     {
@@ -708,7 +711,7 @@ tap_inject_enable_ip4_output_cli (vlib_main_t * vm, unformat_input_t * input,
 	      im->ip4_output_tap_queue_index =
 		vlib_frame_queue_main_init (im->ip4_output_tap_node_index, 0);
 	    }
-	  tap_inject_set_ip4_output (sw_if_index, 1);
+	  tap_inject_enable_ip4_output (sw_if_index, 1);
 	}
       else
 	{

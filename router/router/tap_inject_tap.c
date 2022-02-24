@@ -42,6 +42,7 @@ tap_inject_tap_read (clib_file_t * f)
 }
 
 #define TAP_INJECT_TAP_BASE_NAME "vpp"
+#define TAP_INJECT_TUN_BASE_NAME "vpp_tun"
 
 clib_error_t *
 tap_inject_tap_connect (vnet_hw_interface_t * hw)
@@ -66,16 +67,14 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
   if ((int)tap_fd < 0)
     return clib_error_return (0, "failed to open tun device");
 
-  name = format (0, TAP_INJECT_TAP_BASE_NAME "%u%c", hw->hw_instance, 0);
-  strncpy (ifr.ifr_name, (char *) name, sizeof (ifr.ifr_name) - 1);
-
 #ifdef FLEXIWAN_FEATURE
   /* The FlexiWAN peer tunnels utilize loopback interfaces of TUN type toward Linux.
      We use "02:00:27:ff:{tunnel-id}" MAC address to mark loopbacks that require TUN.
      The TUN operates on the level 3, so it does not use MAC-s. That is why we can play with it.
   */
-  if (hw->hw_address[0] == 0x02 && hw->hw_address[1] == 0x00 &&
-      hw->hw_address[2] == 0x27 && hw->hw_address[3] == 0xff)
+  if (hw->hw_class_index == tun_device_hw_interface_class.index ||
+      (hw->hw_address[0] == 0x02 && hw->hw_address[1] == 0x00 &&
+       hw->hw_address[2] == 0x27 && hw->hw_address[3] == 0xff))
   {
     ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
     tap_inject_type_set(sw->sw_if_index, IFF_TUN);
@@ -86,6 +85,11 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
     ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
     tap_inject_type_set(sw->sw_if_index, IFF_TAP);
   }
+
+  char * prefix = hw->hw_class_index == tun_device_hw_interface_class.index ?
+                  TAP_INJECT_TUN_BASE_NAME : TAP_INJECT_TAP_BASE_NAME;
+  name = format (0, "%s%u%c", prefix, hw->hw_instance, 0);
+  strncpy (ifr.ifr_name, (char *) name, sizeof (ifr.ifr_name) - 1);
 
   if (ioctl (tap_fd, TUNSETIFF, (void *)&ifr) < 0)
     {
