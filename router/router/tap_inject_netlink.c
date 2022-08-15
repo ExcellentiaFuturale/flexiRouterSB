@@ -50,6 +50,12 @@ add_del_addr (ns_addr_t * a, int is_del)
   if (sw_if_index == ~0)
     return;
 
+  if (tap_inject_debug_is_enabled())
+  {
+    clib_warning("%U, sw_if_index %u, is_del %u\n", format_ip4_address, &a->local,
+                 sw_if_index, is_del);
+  }
+
   if (a->ifaddr.ifa_family == AF_INET)
     {
       ip4_add_del_interface_address (vm, sw_if_index,
@@ -103,6 +109,11 @@ add_del_link (ns_link_t * l, int is_del)
   else
     flags &= ~VNET_SW_INTERFACE_FLAG_ADMIN_UP;
 
+  if (tap_inject_debug_is_enabled())
+  {
+    clib_warning("sw_if_index %u, flags 0x%x\n", sw_if_index, flags);
+  }
+
   args.index = sw_if_index;
   args.flags = flags;
 
@@ -137,6 +148,12 @@ add_del_neigh (ns_neigh_t * n, int is_del)
   af = (n->nd.ndm_family == AF_INET) ? AF_IP4 : AF_IP6;
   ip_address_set (&ip, n->dst, af);
   mac_address_from_bytes (&mac, n->lladdr);
+
+  if (tap_inject_debug_is_enabled())
+  {
+    clib_warning("sw_if_index %u, %U, %U, is_del %u\n", sw_if_index,
+                 format_ip_address, &ip, format_ethernet_address, n->lladdr, is_del);
+  }
 
   if (n->nd.ndm_state & NUD_REACHABLE  &&  is_del==0)
     {
@@ -254,19 +271,12 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
       rpath.frp_proto = DPO_PROTO_IP4;
       clib_memcpy(&rpath.frp_addr.ip4, gateway, sizeof(rpath.frp_addr.ip4));
 
-#ifdef FLEXIWAN_DEBUG
-      struct sockaddr_in sa;
-      char str[INET_ADDRSTRLEN];
-      clib_memcpy(&sa.sin_addr.s_addr, &rpath.frp_addr.ip4, sizeof(rpath.frp_addr.ip4));
-      inet_ntop(AF_INET, &(sa.sin_addr), str, INET_ADDRSTRLEN);
-
-      struct sockaddr_in sa2;
-      char dst_str[INET_ADDRSTRLEN];
-      clib_memcpy(&sa2.sin_addr.s_addr, &prefix.fp_addr.ip4, sizeof(prefix.fp_addr.ip4));
-      inet_ntop(AF_INET, &(sa2.sin_addr), dst_str, INET_ADDRSTRLEN);
-
-      clib_warning("%s: %s via %s, is_del %u\n", __FUNCTION__, dst_str, str, is_del);
-#endif
+      if (tap_inject_debug_is_enabled())
+      {
+        clib_warning("sw_if_index %u, %U via %U, is_del %u\n", sw_if_index,
+                     format_ip4_address, &prefix.fp_addr.ip4,
+                     format_ip4_address, &rpath.frp_addr.ip4, is_del);
+      }
 
       /* We ignore routes that have empty gateways.
          If it is installed, it is not removed on tap interface removal.
@@ -413,12 +423,18 @@ add_del_route (ns_route_t * r, int is_del)
     }
 }
 
+static char *netns_type_strings[] = {
+#define _(name,v) [NETNS_TYPE_##name] = v,
+  foreach_netns_type
+#undef _
+};
+
 static void
 netns_notify_cb (void * obj, netns_type_t type, u32 flags, uword opaque)
 {
-#ifdef FLEXIWAN_DEBUG
-  clib_warning("%s: type %u, flags %x", __FUNCTION__, type, flags);
-#endif
+  if (tap_inject_debug_is_enabled()) {
+    clib_warning("%s: flags %x", netns_type_strings[type], flags);
+  }
 
   if (type == NETNS_TYPE_ADDR)
     add_del_addr ((ns_addr_t *)obj, flags & NETNS_F_DEL);
