@@ -27,6 +27,7 @@
  */
 
 #include "tap_inject.h"
+#include <librtnl/netns.h>
 
 #include <vnet/mfib/mfib_table.h>
 #include <vnet/ip/ip.h>
@@ -497,6 +498,42 @@ VLIB_CLI_COMMAND (tap_inject_disable_cmd, static) = {
   .function_arg = 0,
 };
 
+static clib_error_t *
+tap_inject_debug_cli (vlib_main_t * vm, unformat_input_t * input,
+                      vlib_cli_command_t * cmd)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+
+  if (cmd->function_arg)
+    {
+      /* Enable */
+      im->flags |= TAP_INJECT_F_DEBUG_ENABLE;
+    }
+  else
+    {
+      /* Disable */
+      im->flags &= ~TAP_INJECT_F_DEBUG_ENABLE;
+    }
+
+    rtnl_enable_debug(cmd->function_arg);
+
+  return 0;
+}
+
+VLIB_CLI_COMMAND (tap_inject_enable_debug_cmd, static) = {
+  .path = "enable tap-inject debug",
+  .short_help = "enable tap-inject debug",
+  .function = tap_inject_debug_cli,
+  .function_arg = 1,
+};
+
+VLIB_CLI_COMMAND (tap_inject_disable_debug_cmd, static) = {
+  .path = "disable tap-inject debug",
+  .short_help = "disable tap-inject debug",
+  .function = tap_inject_debug_cli,
+  .function_arg = 0,
+};
+
 
 #ifdef FLEXIWAN_FEATURE
 /* We hash tap names to provide quick fetch of vpp interface name to tap name map. 
@@ -850,6 +887,9 @@ tap_inject_config (vlib_main_t * vm, unformat_input_t * input)
 
       else if (unformat (input, "netlink-only"))
         im->flags |= TAP_INJECT_F_CONFIG_NETLINK;
+
+      else if (unformat (input, "debug"))
+        im->flags |= TAP_INJECT_F_DEBUG_ENABLE;
 
       else
         return clib_error_return (0, "syntax error `%U'",

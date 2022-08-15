@@ -48,6 +48,7 @@ typedef struct {
 #define TAP_INJECT_F_CONFIG_DISABLE (1U << 1)
 #define TAP_INJECT_F_CONFIG_NETLINK (1U << 2)
 #define TAP_INJECT_F_ENABLED        (1U << 3)
+#define TAP_INJECT_F_DEBUG_ENABLE   (1U << 4)
 
   u32 flags;
 
@@ -138,6 +139,14 @@ tap_inject_is_config_disabled (void)
   tap_inject_main_t * im = tap_inject_get_main ();
 
   return !!(im->flags & TAP_INJECT_F_CONFIG_DISABLE);
+}
+
+static inline int
+tap_inject_debug_is_enabled (void)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+
+  return !!(im->flags & TAP_INJECT_F_DEBUG_ENABLE);
 }
 
 

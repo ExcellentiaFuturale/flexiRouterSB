@@ -74,6 +74,19 @@ u8 *format_ns_link (u8 *s, va_list *args)
   return s;
 }
 
+static u8 rtnl_debug_enabled = 0;
+
+static inline int
+rtnl_debug_is_enabled (void)
+{
+  return rtnl_debug_enabled;
+}
+
+void rtnl_enable_debug(int enable)
+{
+  rtnl_debug_enabled = enable;
+}
+
 #ifdef FLEXIWAN_FIX
 /*
  * The 'ns_routemap' list below 0/1 to mark key for hash, where librtnl stores
@@ -686,10 +699,41 @@ ns_recv_error(rtnl_error_t err, uword o)
     vec_free(indexes);
 }
 
+static const char*
+ns_recv_rtnl_str(struct nlmsghdr *hdr)
+{
+  switch (hdr->nlmsg_type) {
+  case RTM_NEWROUTE:
+    return "RTM_NEWROUTE";
+  case RTM_DELROUTE:
+    return "RTM_DELROUTE";
+  case RTM_NEWLINK:
+    return "RTM_NEWLINK";
+  case RTM_DELLINK:
+    return "RTM_DELLINK";
+  case RTM_NEWADDR:
+    return "RTM_NEWADDR";
+  case RTM_DELADDR:
+    return "RTM_DELADDR";
+  case RTM_NEWNEIGH:
+    return "RTM_NEWNEIGH";
+  case RTM_DELNEIGH:
+    return "RTM_DELNEIGH";
+  default:
+    return("UNKNOWN");
+    break;
+  }
+}
+
 static void
 ns_recv_rtnl(struct nlmsghdr *hdr, uword o)
 {
   netns_p *ns = &netns_main.netnss[o];
+
+  if(rtnl_debug_is_enabled()) {
+    clib_warning("%s(%u)", ns_recv_rtnl_str(hdr), hdr->nlmsg_type);
+  }
+
   switch (hdr->nlmsg_type) {
   case RTM_NEWROUTE:
   case RTM_DELROUTE:

@@ -107,12 +107,17 @@ typedef struct {
   ns_neigh_t *neighbors;
 } netns_t;
 
+#define foreach_netns_type \
+  _( LINK,  "LINK")		     \
+  _( ROUTE, "ROUTE")		   \
+  _( ADDR,  "ADDR")		     \
+  _( NEIGH, "NEIGH")
 
-typedef enum {
-  NETNS_TYPE_LINK,
-  NETNS_TYPE_ROUTE,
-  NETNS_TYPE_ADDR,
-  NETNS_TYPE_NEIGH,
+typedef enum
+{
+#define _(name, v) NETNS_TYPE_##name,
+  foreach_netns_type
+#undef _
 } netns_type_t;
 
 //Flags used in notification functions call
@@ -162,5 +167,7 @@ u8 *format_ns_link(u8 *s, va_list *args);
 
 u8 *format_ns_object(u8 *s, va_list *args);
 u8 *format_ns_flags(u8 *s, va_list *args);
+
+void rtnl_enable_debug(int enable);
 
 #endif
