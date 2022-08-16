@@ -24,6 +24,9 @@
  *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
  *   - nat-tap-inject-output: Support to NAT packets received from tap
  *   interface before being put on wire
+ *   - enable_acl_based_classification: Classifies packet using classifier_acls
+ *   plugin. The exported classifier_acls plugin API is used to perform the
+ *   classification function.
  */
 
 /*
@@ -497,6 +500,34 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
 
   b->current_length = n_bytes;
   b->error = node->errors[0];
+#ifdef FLEXIWAN_FEATURE  /* enable_acl_based_classification */
+  if (im->classifier_acls_fn)
+    {
+      u8 is_ip6 = 0;
+      u32 if_type = tap_inject_type_get(sw_if_index);
+      if (if_type == IFF_TAP)
+	{
+	  ethernet_header_t *eh = vlib_buffer_get_current (b);
+	  vlib_buffer_advance (b, sizeof(ethernet_header_t));
+	  u16 ether_type = clib_net_to_host_u16 (eh->type);
+	  if (ether_type == ETHERNET_TYPE_IP6)
+	    {
+	      is_ip6 = 1;
+	    }
+	  im->classifier_acls_fn (b, sw_if_index, is_ip6);
+          vlib_buffer_advance (b, -sizeof(ethernet_header_t));
+	}
+      else if (if_type == IFF_TUN)
+	{
+          ip4_header_t *ip = vlib_buffer_get_current (b);
+	  if ((ip->ip_version_and_header_length & 0xF0) == 0x60)
+	    {
+	      is_ip6 = 1;
+	    }
+	  im->classifier_acls_fn (b, sw_if_index, is_ip6);
+	}
+    }
+#endif /* FLEXIWAN_FEATURE - enable_acl_based_classification */
 
   /* If necessary, configure any remaining buffers in the chain. */
   for (i = 1; n_bytes_left > 0 && i < MTU_BUFFERS; ++i, n_bytes_left -= VLIB_BUFFER_DEFAULT_DATA_SIZE)
@@ -703,6 +734,10 @@ tap_inject_init (vlib_main_t * vm)
 
 #endif /* FLEXIWAN_FEATURE */
 
+#ifdef FLEXIWAN_FEATURE  /* enable_acl_based_classification */
+  im->classifier_acls_fn = vlib_get_plugin_symbol
+    ("classifier_acls_plugin.so", "classifier_acls_classify_packet_api");
+#endif /* FLEXIWAN_FEATURE - enable_acl_based_classification */
   return 0;
 }
 
