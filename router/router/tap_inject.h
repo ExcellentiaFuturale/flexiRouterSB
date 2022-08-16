@@ -20,6 +20,9 @@
  *   - nat-tap-inject-output: Support to NAT packets received from tap
  *     interface before being put on wire
  *   - show tap-inject [name|tap|sw_if_index]: dump tap-inject info for specific interface
+ *   - enable_acl_based_classification: Classifies packet using classifier_acls
+ *   plugin. The exported classifier_acls plugin API is used to perform the
+ *   classification function.
  */
 
 #ifndef _TAP_INJECT_H
@@ -34,6 +37,11 @@
 #endif
 
 extern vnet_hw_interface_class_t tun_device_hw_interface_class;
+
+#ifdef FLEXIWAN_FEATURE /* enable_acl_based_classification */
+typedef u32 (*classifier_acls_classify_packet_fn)
+	(vlib_buffer_t *b, u32 sw_if_index, u8 is_ip6);
+#endif /* FLEXIWAN_FEATURE - enable_acl_based_classification */
 
 typedef struct {
   /*
@@ -86,6 +94,9 @@ typedef struct {
   u16 num_workers;
 #endif /* FLEXIWAN_FEATURE */
 
+#ifdef FLEXIWAN_FEATURE /* enable_acl_based_classification */
+  classifier_acls_classify_packet_fn classifier_acls_fn;
+#endif /* FLEXIWAN_FEATURE - enable_acl_based_classification */
   u32 * type;
   u32 ip4_input_node_index;
 } tap_inject_main_t;
