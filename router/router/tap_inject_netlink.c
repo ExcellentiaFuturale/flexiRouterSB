@@ -268,22 +268,6 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
       clib_warning("%s: %s via %s, is_del %u\n", __FUNCTION__, dst_str, str, is_del);
 #endif
 
-      /* We ignore routes that have empty gateways.
-         If it is installed, it is not removed on tap interface removal.
-         And such scenario leads to crash on installing a new route for
-         the same network as previously deleted interface.
-         Example of such issue:
-         sudo ip link set dev vpp9 down
-         sudo ip addr del 10.100.0.32 dev vpp9
-         DBGvpp# loopback delete-interface intfc loop30
-         sudo ip route add 10.100.0.32/31 via 10.100.0.29
-         As a result fib_entry_src_api_path_remove() crashes due to checking
-         previously deleted interface from stale route.
-      */
-      if (!rpath.frp_addr.ip4.as_u32) {
-        return;
-      }
-
       if(*stack != 0) {
         for(int i = 0; i < MPLS_STACK_DEPTH && stack[i] != 0; i++) {
           fib_mpls_label_t fib_label = {stack[i],0,0,0};
