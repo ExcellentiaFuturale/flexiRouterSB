@@ -22,6 +22,7 @@
  *   - fix hashing logic: use 'dst' as key for hash. This is to prevent
  *     duplicated entries in VPP FIB and out of think between VPP FIB and kernel.
  *   - fix handling RTM_NEWNEIGH messages to prevent duplicated entries in VPP
+ *   - when link goes down, routes are deleted on linux side, we need to delete them on VPP side too
  */
 
 #include <librtnl/netns.h>
@@ -411,6 +412,23 @@ ns_rcv_link(netns_p *ns, struct nlmsghdr *hdr)
 #ifdef RTNL_CHECK
   rtnl_entry_check(rtas, IFLA_MAX + 1, ns_ifmap, "link");
 #endif
+
+#ifdef FLEXIWAN_FIX
+  /*  When link goes down, routes are deleted on linux side,
+      but RTM_DELROUTE messages are not sent to avoid enormous amount
+      of messages on systems with thousands of routes.
+      So we need to clean up related routes ourself.
+  */
+  if (!(ifi->ifi_flags & IFF_UP)) {
+    ns_route_t *route;
+    pool_foreach(route, ns->netns.routes) {
+        if (route->oif == ifi->ifi_index) {
+          pool_put(ns->netns.routes, route);
+          netns_notify(ns, route, NETNS_TYPE_ROUTE, NETNS_F_DEL);
+        };
+    };
+  }
+#endif /* FLEXIWAN_FIX */
 
   link = ns_get_link(ns, ifi, rtas);
 
