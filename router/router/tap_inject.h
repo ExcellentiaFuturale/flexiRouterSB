@@ -40,7 +40,8 @@ extern vnet_hw_interface_class_t tun_device_hw_interface_class;
 
 #ifdef FLEXIWAN_FEATURE /* enable_acl_based_classification */
 typedef u32 (*classifier_acls_classify_packet_fn)
-	(vlib_buffer_t *b, u32 sw_if_index, u8 is_ip6);
+	(vlib_buffer_t *b, u32 sw_if_index, u8 is_ip6, u32 *out_acl_index,
+	 u32 *out_rule_index);
 #endif /* FLEXIWAN_FEATURE - enable_acl_based_classification */
 
 typedef struct {
