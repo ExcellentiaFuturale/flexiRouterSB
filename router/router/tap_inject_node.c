@@ -514,7 +514,7 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
 	    {
 	      is_ip6 = 1;
 	    }
-	  im->classifier_acls_fn (b, sw_if_index, is_ip6);
+	  im->classifier_acls_fn (b, sw_if_index, is_ip6, NULL, NULL);
           vlib_buffer_advance (b, -sizeof(ethernet_header_t));
 	}
       else if (if_type == IFF_TUN)
@@ -524,7 +524,7 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
 	    {
 	      is_ip6 = 1;
 	    }
-	  im->classifier_acls_fn (b, sw_if_index, is_ip6);
+	  im->classifier_acls_fn (b, sw_if_index, is_ip6, NULL, NULL);
 	}
     }
 #endif /* FLEXIWAN_FEATURE - enable_acl_based_classification */
