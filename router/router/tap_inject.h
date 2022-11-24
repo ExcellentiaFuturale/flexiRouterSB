@@ -23,6 +23,7 @@
  *   - enable_acl_based_classification: Classifies packet using classifier_acls
  *   plugin. The exported classifier_acls plugin API is used to perform the
  *   classification function.
+ *   - fix memory leak with clib_file_add() on tap inject/delete
  */
 
 #ifndef _TAP_INJECT_H
@@ -74,6 +75,7 @@ typedef struct {
 #ifdef FLEXIWAN_FEATURE
   u8* * sw_if_index_to_tap_name; /*vector that maps sw_if_index into tap name*/
   uword * tap_if_index_by_name;  /*hash that maps tap name into tap index*/
+  u32 * sw_if_index_to_clib_file_index;
 #endif /* FLEXIWAN_FEATURE */
 
   u32 * interfaces_to_enable;

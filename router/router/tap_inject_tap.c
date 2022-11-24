@@ -14,6 +14,12 @@
  * limitations under the License.
  */
 
+/*
+ *  Copyright (C) 2022 flexiWAN Ltd.
+ *  List of features made for FlexiWAN (denoted by FLEXIWAN_FEATURE flag):
+ *   - fix memory leak with clib_file_add() on tap inject/delete
+ */
+
 #include "tap_inject.h"
 
 #include <fcntl.h>
@@ -48,6 +54,9 @@ clib_error_t *
 tap_inject_tap_connect (vnet_hw_interface_t * hw)
 {
   vnet_main_t * vnet_main = vnet_get_main ();
+#ifdef FLEXIWAN_FEATURE
+  tap_inject_main_t * im = tap_inject_get_main ();
+#endif
   vnet_sw_interface_t * sw = vnet_get_sw_interface (vnet_main, hw->hw_if_index);
   static const int one = 1;
   int fd;
@@ -143,11 +152,13 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
   template.read_function = tap_inject_tap_read;
   template.file_descriptor = tap_fd;
 
-  clib_file_add (&file_main, &template);
-
 #ifdef FLEXIWAN_FEATURE
+  vec_validate_init_empty (im->sw_if_index_to_clib_file_index, sw->sw_if_index, ~0);
+  im->sw_if_index_to_clib_file_index[sw->sw_if_index] = clib_file_add (&file_main, &template);
+
   tap_inject_insert_tap (sw->sw_if_index, tap_fd, ifr.ifr_ifindex, name);
 #else
+  clib_file_add (&file_main, &template);
   tap_inject_insert_tap (sw->sw_if_index, tap_fd, ifr.ifr_ifindex);
 #endif  /*#ifdef FLEXIWAN_FEATURE*/
   return 0;
@@ -157,10 +168,25 @@ clib_error_t *
 tap_inject_tap_disconnect (u32 sw_if_index)
 {
   u32 tap_fd;
+#ifdef FLEXIWAN_FEATURE
+  tap_inject_main_t * im = tap_inject_get_main ();
+  u32 clib_file_index;
+#endif /* FLEXIWAN_FEATURE */
+
 
   tap_fd = tap_inject_lookup_tap_fd (sw_if_index);
   if (tap_fd == ~0)
     return clib_error_return (0, "failed to disconnect tap");
+
+#ifdef FLEXIWAN_FEATURE
+  vec_validate_init_empty (im->sw_if_index_to_clib_file_index, sw_if_index, ~0);
+  clib_file_index = im->sw_if_index_to_clib_file_index[sw_if_index];
+  if (clib_file_index != ~0)
+  {
+    clib_file_del_by_index(&file_main, clib_file_index);
+  }
+  im->sw_if_index_to_clib_file_index[sw_if_index] = ~0;
+#endif /* FLEXIWAN_FEATURE */
 
   tap_inject_delete_tap (sw_if_index);
 
