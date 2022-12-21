@@ -97,7 +97,7 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
 
   char * prefix = hw->hw_class_index == tun_device_hw_interface_class.index ?
                   TAP_INJECT_TUN_BASE_NAME : TAP_INJECT_TAP_BASE_NAME;
-  name = format (0, "%s%u%c", prefix, hw->hw_instance, 0);
+  name = format (0, "%s%u%c", prefix, sw->sw_if_index, 0);
   strncpy (ifr.ifr_name, (char *) name, sizeof (ifr.ifr_name) - 1);
 
   if (ioctl (tap_fd, TUNSETIFF, (void *)&ifr) < 0)
