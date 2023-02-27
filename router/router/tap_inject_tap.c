@@ -57,7 +57,8 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
 #ifdef FLEXIWAN_FEATURE
   tap_inject_main_t * im = tap_inject_get_main ();
 #endif
-  vnet_sw_interface_t * sw = vnet_get_sw_interface (vnet_main, hw->hw_if_index);
+  vnet_sw_interface_t * sw = vnet_get_sw_interface (vnet_main, hw->sw_if_index);
+
   static const int one = 1;
   int fd;
   struct ifreq ifr;
@@ -67,8 +68,6 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
 
   memset (&ifr, 0, sizeof (ifr));
   memset (&template, 0, sizeof (template));
-
-  ASSERT (hw->hw_if_index == sw->sw_if_index);
 
   /* Create the tap. */
   tap_fd = open ("/dev/net/tun", O_RDWR);
@@ -86,13 +85,13 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
        hw->hw_address[2] == 0x27 && hw->hw_address[3] == 0xff))
   {
     ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
-    tap_inject_type_set(sw->sw_if_index, IFF_TUN);
+    tap_inject_type_set(sw->sw_if_index, TAP_INJECT_TUN);
   }
   else
 #endif /*#ifdef FLEXIWAN_FEATURE*/
   {
     ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
-    tap_inject_type_set(sw->sw_if_index, IFF_TAP);
+    tap_inject_type_set(sw->sw_if_index, TAP_INJECT_TAP);
   }
 
   char * prefix = hw->hw_class_index == tun_device_hw_interface_class.index ?
@@ -103,13 +102,13 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
   if (ioctl (tap_fd, TUNSETIFF, (void *)&ifr) < 0)
     {
       close (tap_fd);
-      return clib_error_return (0, "failed to create tap");
+      return clib_error_return (0, "failed to create tap: %s", strerror(errno));
     }
 
   if (ioctl (tap_fd, FIONBIO, &one) < 0)
     {
       close (tap_fd);
-      return clib_error_return (0, "failed to set tap to non-blocking io");
+      return clib_error_return (0, "failed to set tap to non-blocking io: %s", strerror(errno));
     }
 
   /* Open a socket to configure the device. */
@@ -122,7 +121,7 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
     }
 
   // MAC address is relevant for TAP type but not for TUN.
-  if (tap_inject_type_get(sw->sw_if_index) == IFF_TAP) {
+  if (tap_inject_type_check(sw->sw_if_index, TAP_INJECT_TAP)) {
     if (hw->hw_address)
       clib_memcpy (ifr.ifr_hwaddr.sa_data, hw->hw_address, ETHER_ADDR_LEN);
 
@@ -134,7 +133,7 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
       {
         close (tap_fd);
         close (fd);
-        return clib_error_return (0, "failed to set tap hardware address");
+        return clib_error_return (0, "failed to set tap hardware address: %s", strerror(errno));
       }
   }
 
@@ -143,7 +142,7 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
     {
       close (tap_fd);
       close (fd);
-      return clib_error_return (0, "failed to procure tap if index");
+      return clib_error_return (0, "failed to procure tap if index: %s", strerror(errno));
     }
 
   close (fd);

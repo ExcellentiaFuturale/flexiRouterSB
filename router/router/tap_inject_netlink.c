@@ -52,7 +52,7 @@ add_del_addr (ns_addr_t * a, int is_del)
 
   if (tap_inject_debug_is_enabled())
   {
-    clib_warning("%U, sw_if_index %u, is_del %u\n", format_ip4_address, &a->local,
+    clib_warning("%U, sw_if_index %u, is_del %u", format_ip4_address, &a->local,
                  sw_if_index, is_del);
   }
 
@@ -111,7 +111,7 @@ add_del_link (ns_link_t * l, int is_del)
 
   if (tap_inject_debug_is_enabled())
   {
-    clib_warning("sw_if_index %u, flags 0x%x\n", sw_if_index, flags);
+    clib_warning("sw_if_index %u, flags 0x%x", sw_if_index, flags);
   }
 
   args.index = sw_if_index;
@@ -151,7 +151,7 @@ add_del_neigh (ns_neigh_t * n, int is_del)
 
   if (tap_inject_debug_is_enabled())
   {
-    clib_warning("sw_if_index %u, %U, %U, is_del %u\n", sw_if_index,
+    clib_warning("sw_if_index %u, %U, %U, is_del %u", sw_if_index,
                  format_ip_address, &ip, format_ethernet_address, n->lladdr, is_del);
   }
 
@@ -273,7 +273,7 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
 
       if (tap_inject_debug_is_enabled())
       {
-        clib_warning("sw_if_index %u, %U via %U, is_del %u\n", sw_if_index,
+        clib_warning("sw_if_index %u, %U via %U, is_del %u", sw_if_index,
                      format_ip4_address, &prefix.fp_addr.ip4,
                      format_ip4_address, &rpath.frp_addr.ip4, is_del);
       }

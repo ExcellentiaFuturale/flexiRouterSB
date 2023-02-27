@@ -28,6 +28,8 @@
 
 #include "tap_inject.h"
 #include <librtnl/netns.h>
+#include <linux/if_ether.h>
+#include <netlink/route/link/vlan.h>
 
 #include <vnet/mfib/mfib_table.h>
 #include <vnet/ip/ip.h>
@@ -44,6 +46,12 @@ static tap_inject_main_t tap_inject_main;
 extern dpo_type_t tap_inject_dpo_type;
 extern vlib_node_registration_t tap_inject_pppoe_tx_node;
 
+static clib_error_t *
+tap_inject_vlan_add (struct vnet_main_t * vnet_main, u32 sw_if_index);
+
+static clib_error_t *
+tap_inject_vlan_del (u32 sw_if_index);
+
 tap_inject_main_t *
 tap_inject_get_main (void)
 {
@@ -59,6 +67,12 @@ tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index)
 {
   tap_inject_main_t * im = tap_inject_get_main ();
 
+  if (tap_inject_debug_is_enabled())
+    {
+      clib_warning("sw_if_index: %d, tap_fd: %d, tap_if_index: %d, tap_if_name: %v",
+                   sw_if_index, tap_fd, tap_if_index, tap_if_name);
+    }
+
   vec_validate_init_empty (im->sw_if_index_to_tap_fd, sw_if_index, ~0);
   vec_validate_init_empty (im->sw_if_index_to_tap_if_index, sw_if_index, ~0);
 #ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
@@ -70,15 +84,18 @@ tap_inject_insert_tap (u32 sw_if_index, u32 tap_fd, u32 tap_if_index)
   hash_set_mem (im->tap_if_index_by_name, tap_if_name, tap_if_index);
 #endif /* FLEXIWAN_FEATURE */
 
-  vec_validate_init_empty (im->tap_fd_to_sw_if_index, tap_fd, ~0);
-  vec_validate_init_empty (im->sw_if_index_to_sw_if_index, sw_if_index, ~0);
+  if (tap_fd != ~0)
+    {
+      vec_validate_init_empty (im->tap_fd_to_sw_if_index, tap_fd, ~0);
+      im->sw_if_index_to_tap_fd[sw_if_index] = tap_fd;
+      im->tap_fd_to_sw_if_index[tap_fd] = sw_if_index;
+    }
 
-  im->sw_if_index_to_tap_fd[sw_if_index] = tap_fd;
+  vec_validate_init_empty (im->sw_if_index_to_sw_if_index, sw_if_index, ~0);
   im->sw_if_index_to_tap_if_index[sw_if_index] = tap_if_index;
 
-  im->tap_fd_to_sw_if_index[tap_fd] = sw_if_index;
-
   hash_set (im->tap_if_index_to_sw_if_index, tap_if_index, sw_if_index);
+  vec_validate_init_empty (im->type, sw_if_index, 0);
 }
 
 void tap_inject_map_tap_if_index_to_sw_if_index (u32 tap_if_index, u32 sw_if_index)
@@ -107,6 +124,8 @@ void tap_inject_map_interface_set (u32 src_sw_if_index, u32 dst_sw_if_index)
 
   vec_validate_init_empty (im->sw_if_index_to_tap_fd, dst_sw_if_index, ~0);
   im->sw_if_index_to_tap_fd[dst_sw_if_index] = im->sw_if_index_to_tap_fd[src_sw_if_index];
+
+  tap_inject_type_set(dst_sw_if_index, TAP_INJECT_MAPPED);
 }
 
 void tap_inject_map_interface_delete (u32 src_sw_if_index, u32 dst_sw_if_index)
@@ -129,10 +148,77 @@ u32 tap_inject_map_interface_get (u32 sw_if_index)
   return new_sw_if_index;
 }
 
+void tap_inject_vlan_sw_if_index_add_del (u16 vlan, u32 parent_sw_if_index, u32 vlan_sw_if_index, u32 add)
+{
+  tap_inject_main_t *im = tap_inject_get_main();
+  tap_inject_vlan_key_t key;
+
+  key.k = 0;
+  key.key.vlan = vlan;
+  key.key.parent_sw_if_index = parent_sw_if_index;
+
+  if (add)
+    {
+      hash_set (im->vlan_to_sw_if_index, key.k, vlan_sw_if_index);
+      hash_set (im->sw_if_index_to_vlan, vlan_sw_if_index, key.k);
+    }
+  else
+    {
+      hash_unset (im->vlan_to_sw_if_index, key.k);
+      hash_unset (im->sw_if_index_to_vlan, vlan_sw_if_index);
+    }
+}
+
+u32 tap_inject_vlan_sw_if_index_get (u16 vlan, u32 parent_sw_if_index)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+  uword *p = 0;
+  u32 sw_if_index = ~0;
+  tap_inject_vlan_key_t key;
+
+  key.k = 0;
+  key.key.vlan = vlan;
+  key.key.parent_sw_if_index = parent_sw_if_index;
+
+  p = hash_get (im->vlan_to_sw_if_index, key.k);
+  if (p)
+    sw_if_index = p[0];
+
+  return sw_if_index;
+}
+
+int tap_inject_sw_if_index_vlan_get (u32 vlan_sw_if_index, u16 *vlan, u32 *parent_sw_if_index)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+  uword *p = 0;
+  tap_inject_vlan_key_t key;
+
+  p = hash_get (im->sw_if_index_to_vlan, vlan_sw_if_index);
+  if (p) {
+    key.k = p[0];
+    *vlan = key.key.vlan;
+    *parent_sw_if_index = key.key.parent_sw_if_index;
+    return 0;
+  }
+
+  return -1;
+}
+
 void
 tap_inject_delete_tap (u32 sw_if_index)
 {
   tap_inject_main_t * im = tap_inject_get_main ();
+
+  if (tap_inject_debug_is_enabled())
+    {
+      clib_warning("sw_if_index: %d", sw_if_index);
+    }
+
+  if (im->type[sw_if_index] == 0)
+    {
+      return;
+    }
+
   u32 tap_fd = im->sw_if_index_to_tap_fd[sw_if_index];
   u32 tap_if_index = im->sw_if_index_to_tap_if_index[sw_if_index];
 #ifdef FLEXIWAN_FEATURE
@@ -152,9 +238,11 @@ tap_inject_delete_tap (u32 sw_if_index)
     }
 #endif /* FLEXIWAN_FEATURE */
 
-  im->tap_fd_to_sw_if_index[tap_fd] = ~0;
+  if (tap_fd != ~0 && !tap_inject_type_check(sw_if_index, TAP_INJECT_MAPPED)) {
+    im->tap_fd_to_sw_if_index[tap_fd] = ~0;
+  }
   im->sw_if_index_to_sw_if_index[sw_if_index] = ~0;
-  im->type[sw_if_index] = ~0;
+  im->type[sw_if_index] = 0;
 
   hash_unset (im->tap_if_index_to_sw_if_index, tap_if_index);
 }
@@ -205,23 +293,6 @@ tap_inject_enable_ip4_output (u32 sw_if_index, u32 enable)
 }
 
 #endif /* FLEXIWAN_FEATURE */
-
-u32
-tap_inject_type_get (u32 sw_if_index)
-{
-  tap_inject_main_t * im = tap_inject_get_main ();
-  ASSERT (sw_if_index < vec_len (im->type));
-  return im->type[sw_if_index];
-}
-
-void
-tap_inject_type_set (u32 sw_if_index, u32 type)
-{
-  tap_inject_main_t * im = tap_inject_get_main ();
-  vec_validate_init_empty (im->type, sw_if_index, ~0);
-  im->type[sw_if_index] = type;
-}
-
 
 /* *INDENT-OFF* */
 VLIB_PLUGIN_REGISTER () = {
@@ -338,14 +409,24 @@ tap_inject_iface_isr (vlib_main_t * vm, vlib_node_runtime_t * node,
                       vlib_frame_t * f)
 {
   tap_inject_main_t * im = tap_inject_get_main ();
+  vnet_main_t * vnet_main = vnet_get_main ();
+  vnet_sw_interface_t * sw;
   vnet_hw_interface_t * hw;
-  u32 * hw_if_index;
+  u32 * sw_if_index;
   clib_error_t * err = 0;
-  int rv = 0;
+  uword is_sub;
 
-  vec_foreach (hw_if_index, im->interfaces_to_enable)
+  vec_foreach (sw_if_index, im->interfaces_to_enable)
     {
-      hw = vnet_get_hw_interface (vnet_get_main (), *hw_if_index);
+      sw = vnet_get_sw_interface (vnet_main, *sw_if_index);
+      is_sub = vnet_sw_interface_is_sub (vnet_main, sw->sw_if_index);
+      if (is_sub)
+        {
+          tap_inject_vlan_add(vnet_main, *sw_if_index);
+          continue;
+        }
+
+      hw = vnet_get_hw_interface (vnet_main, sw->hw_if_index);
 
       if (hw->hw_class_index == ethernet_hw_interface_class.index ||
           hw->hw_class_index == tun_device_hw_interface_class.index)
@@ -359,15 +440,19 @@ tap_inject_iface_isr (vlib_main_t * vm, vlib_node_runtime_t * node,
 
           err = tap_inject_tap_connect (hw);
           if (err) {
-            rv = clib_error_get_code (err);
-            clib_error("tap_inject_iface_isr: error code %u", rv);
+            clib_error("%v", err->what);
             break;
           }
         }
     }
 
-  vec_foreach (hw_if_index, im->interfaces_to_disable)
-    tap_inject_tap_disconnect (*hw_if_index);
+  vec_foreach (sw_if_index, im->interfaces_to_disable)
+    {
+      if (tap_inject_type_check(*sw_if_index, TAP_INJECT_VLAN))
+        tap_inject_vlan_del(*sw_if_index);
+      else
+        tap_inject_tap_disconnect (*sw_if_index);
+    }
 
   vec_free (im->interfaces_to_enable);
   vec_free (im->interfaces_to_disable);
@@ -385,7 +470,7 @@ VLIB_REGISTER_NODE (tap_inject_iface_isr_node, static) = {
 
 
 static clib_error_t *
-tap_inject_interface_add_del (struct vnet_main_t * vnet_main, u32 hw_if_index,
+tap_inject_interface_add_del (struct vnet_main_t * vnet_main, u32 sw_if_index,
                               u32 add)
 {
   vlib_main_t * vm = vlib_get_main ();
@@ -397,41 +482,201 @@ tap_inject_interface_add_del (struct vnet_main_t * vnet_main, u32 hw_if_index,
   tap_inject_enable ();
 
 #ifdef FLEXIWAN_FIX
-  // As of Dec-2019 we use loop0-bridge-l2gre_ipsec_tunnel and loop1-bridge-vxlan_tunnel 
+  // As of Dec-2019 we use loop0-bridge-l2gre_ipsec_tunnel and loop1-bridge-vxlan_tunnel
   // in order to enable NAT 1:1. The loop1 interface should not be exposed to Linux/user,
   // as it is for internal use only, and no ping/netplan etc should be enabled.
   // Therefore we hide it from user by escaping it in this function.
   // The fwagent enforces odd instance numbers for loop1 interfaces,
   // e.g. loop5, loop7, loop9 etc, and even indexes for loop0 interfaces.
   // See usage of create_loopback_instance() function in fwagent.
-  {
-      vnet_hw_interface_t * hw = vnet_get_hw_interface (vnet_main, hw_if_index);
-      if (hw->name != NULL  &&  clib_memcmp(hw->name, "loop", 4) == 0  &&
-          hw->dev_instance % 2 == 1)
-        return 0;
-  }
+  vnet_sw_interface_t * sw = vnet_get_sw_interface (vnet_main, sw_if_index);
+  vnet_hw_interface_t * hw = vnet_get_hw_interface_or_null (vnet_main, sw->hw_if_index);
+  if (hw && hw->name != NULL  &&  clib_memcmp(hw->name, "loop", 4) == 0  &&
+      hw->dev_instance % 2 == 1)
+    {
+      return 0;
+    }
 #endif /* FLEXIWAN_FIX */
 
   if (add)
-    vec_add1 (im->interfaces_to_enable, hw_if_index);
+    vec_add1 (im->interfaces_to_enable, sw_if_index);
   else
-    vec_add1 (im->interfaces_to_disable, hw_if_index);
+    vec_add1 (im->interfaces_to_disable, sw_if_index);
 
   vlib_node_set_interrupt_pending (vm, tap_inject_iface_isr_node.index);
 
   return 0;
 }
 
-VNET_HW_INTERFACE_ADD_DEL_FUNCTION (tap_inject_interface_add_del);
+static clib_error_t *
+tap_inject_netlink_add_link_vlan (int parent, u32 vlan, u16 proto, u8 *name, int *if_index)
+{
+  struct rtnl_link *link;
+  struct nl_sock *sk;
+  int err;
 
+  if (tap_inject_debug_is_enabled())
+  {
+    clib_warning("parent %u, vlan %u, proto %u, name %s",
+                 parent, vlan, proto, name);
+  }
+
+  sk = nl_socket_alloc ();
+  if ((err = nl_connect (sk, NETLINK_ROUTE)) < 0)
+    {
+      clib_error("connect error: %d", err);
+      nl_socket_free (sk);
+      return clib_error_return (NULL, "Unable to connect socket: %d", err);
+    }
+
+  link = rtnl_link_vlan_alloc ();
+
+  rtnl_link_set_link (link, parent);
+  rtnl_link_set_name (link, (const char*)name);
+  rtnl_link_vlan_set_id (link, vlan);
+  rtnl_link_vlan_set_protocol (link, htons (proto));
+
+  if ((err = rtnl_link_add (sk, link, NLM_F_CREATE)) < 0)
+    {
+      clib_error("link add error: %d", err);
+      rtnl_link_put (link);
+      nl_socket_free (sk);
+      return clib_error_return (NULL, "Unable to add link %s: %d", name, err);
+    }
+
+  *if_index = if_nametoindex((const char*)name);
+
+  if (tap_inject_debug_is_enabled())
+  {
+    clib_warning("vlan was created, if_index %u", *if_index);
+  }
+
+  rtnl_link_put (link);
+  nl_socket_free (sk);
+
+  return NULL;
+}
+
+static clib_error_t *
+tap_inject_netlink_del_link (u8 *name)
+{
+  struct rtnl_link *link;
+  struct nl_sock *sk;
+  int err;
+
+  sk = nl_socket_alloc ();
+  if ((err = nl_connect (sk, NETLINK_ROUTE)) < 0)
+    {
+      clib_error("Unable to connect socket: %s", strerror(errno));
+      nl_socket_free (sk);
+      return clib_error_return (NULL, "Unable to connect socket: %s", strerror(errno));
+    }
+
+  link = rtnl_link_alloc ();
+  rtnl_link_set_name (link, (const char*)name);
+
+  if ((err = rtnl_link_delete (sk, link)) < 0)
+    {
+      clib_error("Unable to del link %s: %s", name, strerror(errno));
+      rtnl_link_put (link);
+      nl_socket_free (sk);
+      return clib_error_return (NULL, "Unable to del link %s: %s", name, strerror(errno));
+    }
+
+  rtnl_link_put (link);
+  nl_socket_free (sk);
+
+  return NULL;
+}
+
+static clib_error_t *
+tap_inject_vlan_add (struct vnet_main_t * vnet_main, u32 sw_if_index)
+{
+  const vnet_sw_interface_t *sw;
+  u16 outer_vlan;
+  u16 outer_proto;
+  u32 parent_sw_if_index;
+  u32 parent_if_index;
+  clib_error_t *err;
+  u8* parent_name;
+  u8* name;
+  int if_index = ~0;
+  u32 type;
+  tap_inject_main_t * im = tap_inject_get_main ();
+
+  sw = vnet_get_sw_interface_or_null (vnet_main, sw_if_index);
+  if (!sw)
+    {
+      return clib_error_return (NULL, "Can not find sw_if_index %u", sw_if_index);
+    }
+
+  if (sw->sub.eth.flags.dot1ad)
+    {
+      return clib_error_return (NULL, "8021AD is not supported");
+    }
+
+  parent_sw_if_index = sw->sup_sw_if_index;
+  parent_if_index = im->sw_if_index_to_tap_if_index[parent_sw_if_index];
+  parent_name = im->sw_if_index_to_tap_name[parent_sw_if_index];
+  outer_vlan = sw->sub.eth.outer_vlan_id;
+  outer_proto = ETH_P_8021Q;
+
+  name = format (0, "%s.%u", parent_name, outer_vlan);
+
+  err = tap_inject_netlink_add_link_vlan (parent_if_index, outer_vlan, outer_proto,
+					                                name, &if_index);
+  if (err)
+    return err;
+
+  tap_inject_insert_tap(sw_if_index, ~0, if_index, name);
+  tap_inject_map_interface_set(parent_sw_if_index, sw_if_index);
+  type = tap_inject_type_get(parent_sw_if_index);
+  tap_inject_type_set(sw_if_index, type | TAP_INJECT_VLAN | outer_vlan << 16);
+  tap_inject_vlan_sw_if_index_add_del(outer_vlan, parent_sw_if_index, sw_if_index, 1);
+
+  return NULL;
+}
+
+static clib_error_t *
+tap_inject_vlan_del (u32 sw_if_index)
+{
+  int ret = 0;
+  clib_error_t * err = 0;
+  u16 vlan = 0;
+  u32 parent_sw_if_index = 0;
+  u8* name;
+  tap_inject_main_t * im = tap_inject_get_main ();
+
+  name = im->sw_if_index_to_tap_name[sw_if_index];
+
+  err = tap_inject_netlink_del_link(name);
+  if (err) {
+    clib_error("%v", err->what);
+    return err;
+  }
+
+  ret = tap_inject_sw_if_index_vlan_get(sw_if_index, &vlan, &parent_sw_if_index);
+  if (ret < 0) {
+    clib_error("VLAN with sw_if_index %u not found", sw_if_index);
+    return NULL;
+  }
+
+  tap_inject_vlan_sw_if_index_add_del(vlan, parent_sw_if_index, sw_if_index, 0);
+
+  tap_inject_delete_tap(sw_if_index);
+
+  return NULL;
+}
+
+VNET_SW_INTERFACE_ADD_DEL_FUNCTION (tap_inject_interface_add_del);
 
 static clib_error_t *
 tap_inject_enable_disable_all_interfaces (int enable)
 {
   vnet_main_t * vnet_main = vnet_get_main ();
   tap_inject_main_t * im = tap_inject_get_main ();
-  vnet_hw_interface_t * interfaces;
-  vnet_hw_interface_t * hw;
+  vnet_sw_interface_t * interfaces;
+  vnet_sw_interface_t * sw;
   u32 ** indices;
 
   if (enable)
@@ -440,9 +685,9 @@ tap_inject_enable_disable_all_interfaces (int enable)
     tap_inject_disable ();
 
   /* Collect all the interface indices. */
-  interfaces = vnet_main->interface_main.hw_interfaces;
+  interfaces = vnet_main->interface_main.sw_interfaces;
   indices = enable ? &im->interfaces_to_enable : &im->interfaces_to_disable;
-  pool_foreach (hw, interfaces) {vec_add1 (*indices, hw - interfaces);};
+  pool_foreach (sw, interfaces) {vec_add1 (*indices, sw - interfaces);};
 
   if (tap_inject_iface_isr (vlib_get_main (), 0, 0))
     return clib_error_return (0, "tap-inject interface add del isr failed");
