@@ -44,6 +44,15 @@ typedef u32 (*classifier_acls_classify_packet_fn)
 	(vlib_buffer_t *b, u32 sw_if_index, u8 is_ip6, u32 *out_acl_index,
 	 u32 *out_rule_index);
 #endif /* FLEXIWAN_FEATURE - enable_acl_based_classification */
+typedef struct {
+  u16 vlan;
+  u32 parent_sw_if_index;
+} tap_inject_vlan_key_internal_t;
+
+typedef union {
+  uword k;
+  tap_inject_vlan_key_internal_t key;
+} tap_inject_vlan_key_t;
 
 typedef struct {
   /*
@@ -76,6 +85,8 @@ typedef struct {
   u8* * sw_if_index_to_tap_name; /*vector that maps sw_if_index into tap name*/
   uword * tap_if_index_by_name;  /*hash that maps tap name into tap index*/
   u32 * sw_if_index_to_clib_file_index;
+  uword * vlan_to_sw_if_index;
+  uword * sw_if_index_to_vlan;
 #endif /* FLEXIWAN_FEATURE */
 
   u32 * interfaces_to_enable;
@@ -122,14 +133,54 @@ u32 tap_inject_lookup_tap_fd (u32 sw_if_index);
 u32 tap_inject_lookup_sw_if_index_from_tap_fd (u32 tap_fd);
 u32 tap_inject_lookup_sw_if_index_from_tap_if_index (u32 tap_if_index);
 
+void tap_inject_vlan_sw_if_index_add_del (u16 vlan, u32 parent_sw_if_index, u32 vlan_sw_if_index, u32 add);
+u32 tap_inject_vlan_sw_if_index_get (u16 vlan, u32 parent_sw_if_index);
+
 
 #ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
 u32 tap_inject_is_enabled_ip4_output (u32 sw_if_index);
 void tap_inject_enable_ip4_output (u32 sw_if_index, u32 enable);
 #endif /* FLEXIWAN_FEATURE */
 
-u32 tap_inject_type_get (u32 sw_if_index);
-void tap_inject_type_set (u32 sw_if_index, u32 type);
+#define TAP_INJECT_TAP     (1U << 0)
+#define TAP_INJECT_TUN     (1U << 1)
+#define TAP_INJECT_VLAN    (1U << 2)
+#define TAP_INJECT_MAPPED  (1U << 3)
+
+static inline int
+tap_inject_debug_is_enabled (void)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+
+  return !!(im->flags & TAP_INJECT_F_DEBUG_ENABLE);
+}
+
+static inline u32
+tap_inject_type_check (u32 sw_if_index, u32 type)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+  return (im->type[sw_if_index] & type) == type;
+}
+
+static inline u32
+tap_inject_type_get (u32 sw_if_index)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+  return im->type[sw_if_index];
+}
+
+static inline void
+tap_inject_type_set (u32 sw_if_index, u32 type)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+  vec_validate_init_empty (im->type, sw_if_index, 0);
+  im->type[sw_if_index] |= type;
+
+  if (tap_inject_debug_is_enabled())
+    {
+      clib_warning("sw_if_index: %d, type 0x%x", sw_if_index, im->type[sw_if_index]);
+    }
+}
 
 static inline int
 tap_inject_is_enabled (void)
@@ -154,15 +205,6 @@ tap_inject_is_config_disabled (void)
 
   return !!(im->flags & TAP_INJECT_F_CONFIG_DISABLE);
 }
-
-static inline int
-tap_inject_debug_is_enabled (void)
-{
-  tap_inject_main_t * im = tap_inject_get_main ();
-
-  return !!(im->flags & TAP_INJECT_F_DEBUG_ENABLE);
-}
-
 
 /* Netlink */
 

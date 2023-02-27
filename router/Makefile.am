@@ -1,6 +1,6 @@
 AUTOMAKE_OPTIONS = foreign subdir-objects
 
-AM_CFLAGS = -Wall -I@TOOLKIT_INCLUDE@
+AM_CFLAGS = -Wall -I@TOOLKIT_INCLUDE@ -I/usr/include/libnl3/
 
 lib_LTLIBRARIES = router.la
 router_la_SOURCES =     \
@@ -13,7 +13,7 @@ nobase_include_HEADERS =	\
     router/tap_inject.h
 
 router_la_LDFLAGS = -module
-router_la_LIBADD = -lrtnl
+router_la_LIBADD = -lrtnl -lnl-3 -lnl-route-3
 
 if WITH_PLUGIN_TOOLKIT
 install-data-hook:

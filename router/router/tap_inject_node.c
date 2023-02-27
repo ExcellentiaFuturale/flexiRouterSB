@@ -196,8 +196,14 @@ tap_inject_tx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f)
       // The adjustment is needed for TAP and not for TUN. As far as TUN works
       // with pure IP packets with ethernet header on top.
       // Note that currently TUN is used for Flexiwan peer tunnels only.
-      if (tap_inject_type_get(vnet_buffer (b)->sw_if_index[VLIB_RX]) == IFF_TAP)
+      if (tap_inject_type_check(vnet_buffer (b)->sw_if_index[VLIB_RX], TAP_INJECT_TAP))
+      {
+        if (tap_inject_type_check(vnet_buffer (b)->sw_if_index[VLIB_RX], TAP_INJECT_VLAN))
+        {
+          vlib_buffer_advance (b, -sizeof(ethernet_vlan_header_t));
+        }
         vlib_buffer_advance (b, -sizeof(ethernet_header_t));
+      }
 
       tap_inject_tap_send_buffer (vm, fd, b);
 #endif /* FLEXIWAN_FIX */
@@ -325,6 +331,10 @@ tap_inject_neighbor (vlib_main_t * vm,
       // vlib_buffer_advance (b, -b->current_data);
       vlib_buffer_advance (b, -sizeof(ethernet_header_t));
 
+      // In case of subinterface, i.e. VLAN, we adjust for a vlan header
+      if (tap_inject_type_check(vnet_buffer (b)->sw_if_index[VLIB_RX], TAP_INJECT_VLAN))
+        vlib_buffer_advance (b, -sizeof(ethernet_vlan_header_t));
+
       tap_inject_tap_send_buffer (vm, fd, b);
 #endif /* FLEXIWAN_FIX */
       /* Send the buffer to a neighbor node too? */
@@ -419,7 +429,10 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
 
   sw_if_index = tap_inject_lookup_sw_if_index_from_tap_fd (fd);
   if (sw_if_index == ~0)
-    return 0;
+    {
+      clib_warning ("failed to lookup sw_if_index, tap_fd %d", fd);
+      return 0;
+    }
 
   /* Allocate buffers in bulk when there are less than enough to rx an MTU. */
   if (vec_len (im->rx_buffers) < MTU_BUFFERS)
@@ -469,7 +482,7 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
   // To prevent this, we just set TTL to be 2, so OSPF packets for peer tunnels
   // will be not dropped.
   if (!tap_inject_is_enabled_ip4_output(sw_if_index) &&
-      tap_inject_type_get(sw_if_index) == IFF_TUN) {
+      tap_inject_type_check(sw_if_index, TAP_INJECT_TUN)) {
     ip4_header_t *ip = vlib_buffer_get_current (b);
     if (PREDICT_FALSE (ip->protocol == IP_PROTOCOL_OSPF && ip->ttl == 1))
     {
@@ -481,7 +494,7 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
   // TX interface index is not needed for packets inserted in 'ip4-input' node
   // if 'enable-ip4-output' feature is disabled.
   if (!tap_inject_is_enabled_ip4_output(sw_if_index) &&
-      tap_inject_type_get(sw_if_index) == IFF_TUN) {
+      tap_inject_type_check(sw_if_index, TAP_INJECT_TUN)) {
     vnet_buffer (b)->sw_if_index[VLIB_TX] = (u32) ~ 0;
   }
   // TX interface index is needed for packets inserted in 'ip4-output-tap-inject' node
@@ -504,8 +517,7 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
   if (im->classifier_acls_fn)
     {
       u8 is_ip6 = 0;
-      u32 if_type = tap_inject_type_get(sw_if_index);
-      if (if_type == IFF_TAP)
+      if (tap_inject_type_check(sw_if_index, TAP_INJECT_TAP))
 	{
 	  ethernet_header_t *eh = vlib_buffer_get_current (b);
 	  vlib_buffer_advance (b, sizeof(ethernet_header_t));
@@ -517,7 +529,7 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
 	  im->classifier_acls_fn (b, sw_if_index, is_ip6, NULL, NULL);
           vlib_buffer_advance (b, -sizeof(ethernet_header_t));
 	}
-      else if (if_type == IFF_TUN)
+      else if (tap_inject_type_check(sw_if_index, TAP_INJECT_TUN))
 	{
           ip4_header_t *ip = vlib_buffer_get_current (b);
 	  if ((ip->ip_version_and_header_length & 0xF0) == 0x60)
@@ -544,23 +556,39 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
   _vec_len (im->rx_buffers) -= i;
 
 #ifdef FLEXIWAN_FEATURE /* nat-tap-inject-output */
-  vnet_hw_interface_t * hw = vnet_get_hw_interface (vnet_get_main (),
-						    sw_if_index);
+  vnet_sw_interface_t * sw = vnet_get_sw_interface_or_null (vnet_get_main (), sw_if_index);
+  vnet_hw_interface_t * hw = vnet_get_hw_interface (vnet_get_main (), sw->hw_if_index);
   u32 output_handoff_index = hw->output_node_index;
   u32 ip4_output_set = 0;
   u16 ip4_output_tap_thread_index;
   ip4_header_t *ip4 = NULL;
 
-  if (tap_inject_is_enabled_ip4_output(sw_if_index)) {
-    if (tap_inject_type_get(sw_if_index) == IFF_TAP) {
-      ethernet_header_t *eh = vlib_buffer_get_current (b);
-      if (clib_net_to_host_u16 (eh->type) == ETHERNET_TYPE_IP4) {
+  if (tap_inject_type_check(sw_if_index, TAP_INJECT_TAP)) {
+    ethernet_header_t *eh = vlib_buffer_get_current (b);
+    if (clib_net_to_host_u16 (eh->type) == ETHERNET_TYPE_IP4) {
+      if (tap_inject_is_enabled_ip4_output(sw_if_index)) {
         ip4 = vlib_buffer_get_current (b) + sizeof (ethernet_header_t);
         vnet_buffer (b)->ip.save_rewrite_length = sizeof (ethernet_header_t);
         ip4_output_set = 1;
       }
     }
-    else {
+    else if (clib_net_to_host_u16 (eh->type) == ETHERNET_TYPE_VLAN) {
+      ethernet_vlan_header_t *vlan = vlib_buffer_get_current (b) + sizeof(ethernet_header_t);
+      if (clib_net_to_host_u16 (vlan->type) == ETHERNET_TYPE_IP4) {
+        u16 vlan_id = clib_net_to_host_u16 (vlan->priority_cfi_and_id);
+        u32 vlan_sw_if_index = tap_inject_vlan_sw_if_index_get(vlan_id, sw_if_index);
+        if (tap_inject_is_enabled_ip4_output(vlan_sw_if_index)) {
+          ip4 = vlib_buffer_get_current (b) + sizeof (ethernet_header_t) + sizeof(ethernet_vlan_header_t);
+          vnet_buffer (b)->ip.save_rewrite_length = sizeof (ethernet_header_t) + sizeof(ethernet_vlan_header_t);
+          ip4_output_set = 1;
+          vnet_buffer (b)->sw_if_index[VLIB_TX] = vlan_sw_if_index;
+        }
+      }
+    }
+  }
+
+  if (tap_inject_type_check(sw_if_index, TAP_INJECT_TUN)) {
+    if (tap_inject_is_enabled_ip4_output(sw_if_index)) {
       ip4 = vlib_buffer_get_current (b);
       if ((ip4->ip_version_and_header_length & 0xF0) == 0x40) {
         ip4_output_set = 1;
@@ -590,7 +618,7 @@ tap_rx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f, int fd)
 
       // Packets are inserted into 'ip4-input' node if 'enable-ip4-output' feature is disabled.
       if (!tap_inject_is_enabled_ip4_output(sw_if_index) &&
-          tap_inject_type_get(sw_if_index) == IFF_TUN) {
+          tap_inject_type_check(sw_if_index, TAP_INJECT_TUN)) {
         vlib_put_frame_to_node (vm, im->ip4_input_node_index, new_frame);
       }
       // Packets are inserted into 'ip4-output-tap-inject' node if 'enable-ip4-output' feature is enabled.
@@ -738,6 +766,9 @@ tap_inject_init (vlib_main_t * vm)
   im->classifier_acls_fn = vlib_get_plugin_symbol
     ("classifier_acls_plugin.so", "classifier_acls_classify_packet_api");
 #endif /* FLEXIWAN_FEATURE - enable_acl_based_classification */
+
+  im->vlan_to_sw_if_index = hash_create (0, sizeof (u32));
+
   return 0;
 }
 
