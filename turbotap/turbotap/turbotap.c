@@ -329,8 +329,7 @@ int vnet_turbotap_connect (vlib_main_t * vm, u8 * intfc_name, u8 *hwaddr_arg,
          ti - tr->turbotap_interfaces /* device instance */,
          hwaddr /* ethernet address */,
          &ti->hw_if_index,
-         turbotap_flag_change,
-         0 /* flexiwan flags */);
+         turbotap_flag_change);
 
   if (error)
     {
