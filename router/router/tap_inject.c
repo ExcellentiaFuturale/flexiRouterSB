@@ -488,7 +488,7 @@ tap_inject_interface_add_del (struct vnet_main_t * vnet_main, u32 sw_if_index,
   // as it is for internal use only, and no ping/netplan etc should be enabled.
   // Therefore we hide it from user by escaping it in this function.
   vnet_sw_interface_t * sw = vnet_get_sw_interface (vnet_main, sw_if_index);
-  if (vnet_hw_interface_get_flexiwan_flag(vnet_main, NULL /*hw*/, sw->hw_if_index, VNET_INTERFACE_FLEXIWAN_FLAG_NO_VPPSB))
+  if (vnet_hw_interface_get_flexiwan_flag(vnet_main, sw->hw_if_index, VNET_INTERFACE_FLEXIWAN_FLAG_NO_VPPSB))
     {
       return 0;
     }
