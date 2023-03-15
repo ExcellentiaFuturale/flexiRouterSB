@@ -76,17 +76,12 @@ tap_inject_tap_connect (vnet_hw_interface_t * hw)
     return clib_error_return (0, "failed to open tun device");
 
 #ifdef FLEXIWAN_FEATURE
-  /* The FlexiWAN peer tunnels utilize loopback interfaces of TUN type toward Linux.
-     We use "02:00:27:ff:{tunnel-id}" MAC address to mark loopbacks that require TUN.
-     The TUN operates on the level 3, so it does not use MAC-s. That is why we can play with it.
-  */
   if (hw->hw_class_index == tun_device_hw_interface_class.index ||
-      (hw->hw_address[0] == 0x02 && hw->hw_address[1] == 0x00 &&
-       hw->hw_address[2] == 0x27 && hw->hw_address[3] == 0xff))
-  {
+      vnet_hw_interface_get_flexiwan_flag(vnet_main, sw->hw_if_index, VNET_INTERFACE_FLEXIWAN_FLAG_VPPSB_TUN))
+    {
     ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
     tap_inject_type_set(sw->sw_if_index, TAP_INJECT_TUN);
-  }
+    }
   else
 #endif /*#ifdef FLEXIWAN_FEATURE*/
   {

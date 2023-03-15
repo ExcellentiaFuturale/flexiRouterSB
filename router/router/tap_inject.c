@@ -24,6 +24,7 @@
  *   - nat-tap-inject-output: Support to NAT packets received from tap
  *     interface before being put on wire
  *   - show tap-inject [name|tap|sw_if_index]: dump tap-inject info for specific interface
+ *   - handle no-vppsb flag added in the VPP to enable VPPSB to ignore interfaces
  */
 
 #include "tap_inject.h"
@@ -486,13 +487,8 @@ tap_inject_interface_add_del (struct vnet_main_t * vnet_main, u32 sw_if_index,
   // in order to enable NAT 1:1. The loop1 interface should not be exposed to Linux/user,
   // as it is for internal use only, and no ping/netplan etc should be enabled.
   // Therefore we hide it from user by escaping it in this function.
-  // The fwagent enforces odd instance numbers for loop1 interfaces,
-  // e.g. loop5, loop7, loop9 etc, and even indexes for loop0 interfaces.
-  // See usage of create_loopback_instance() function in fwagent.
   vnet_sw_interface_t * sw = vnet_get_sw_interface (vnet_main, sw_if_index);
-  vnet_hw_interface_t * hw = vnet_get_hw_interface_or_null (vnet_main, sw->hw_if_index);
-  if (hw && hw->name != NULL  &&  clib_memcmp(hw->name, "loop", 4) == 0  &&
-      hw->dev_instance % 2 == 1)
+  if (vnet_hw_interface_get_flexiwan_flag(vnet_main, sw->hw_if_index, VNET_INTERFACE_FLEXIWAN_FLAG_NO_VPPSB))
     {
       return 0;
     }
