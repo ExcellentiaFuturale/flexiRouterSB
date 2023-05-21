@@ -332,7 +332,9 @@ tap_inject_enable (void)
     }
 
   /* Register ARP and ICMP6 as neighbor nodes. */
+#ifndef FLEXIWAN_FIX
   ethernet_register_input_type (vm, ETHERNET_TYPE_ARP, im->neighbor_node_index);
+#endif /* FLEXIWAN_FIX */
   ip6_register_protocol (IP_PROTOCOL_ICMP6, im->neighbor_node_index);
 
   /* Register remaining protocols. */
@@ -481,6 +483,14 @@ tap_inject_interface_add_del (struct vnet_main_t * vnet_main, u32 sw_if_index,
     return 0;
 
   tap_inject_enable ();
+
+#ifdef FLEXIWAN_FIX
+  if (add)
+      vnet_feature_enable_disable ("arp", "tap-inject-neighbor", sw_if_index, 1, 0, 0);
+  else
+      vnet_feature_enable_disable ("arp", "tap-inject-neighbor", sw_if_index, 0, 0, 0);
+#endif /* FLEXIWAN_FIX */
+
 
 #ifdef FLEXIWAN_FIX
   // As of Dec-2019 we use loop0-bridge-l2gre_ipsec_tunnel and loop1-bridge-vxlan_tunnel
@@ -674,6 +684,7 @@ tap_inject_enable_disable_all_interfaces (int enable)
   vnet_sw_interface_t * interfaces;
   vnet_sw_interface_t * sw;
   u32 ** indices;
+  u32 * sw_if_index;
 
   if (enable)
     tap_inject_enable ();
@@ -684,6 +695,15 @@ tap_inject_enable_disable_all_interfaces (int enable)
   interfaces = vnet_main->interface_main.sw_interfaces;
   indices = enable ? &im->interfaces_to_enable : &im->interfaces_to_disable;
   pool_foreach (sw, interfaces) {vec_add1 (*indices, sw - interfaces);};
+
+#ifdef FLEXIWAN_FIX
+  vec_foreach (sw_if_index, *indices) {
+    if (enable)
+        vnet_feature_enable_disable ("arp", "tap-inject-neighbor", *sw_if_index, 1, 0, 0);
+    else
+        vnet_feature_enable_disable ("arp", "tap-inject-neighbor", *sw_if_index, 0, 0, 0);
+  };
+#endif /* FLEXIWAN_FIX */
 
   if (tap_inject_iface_isr (vlib_get_main (), 0, 0))
     return clib_error_return (0, "tap-inject interface add del isr failed");

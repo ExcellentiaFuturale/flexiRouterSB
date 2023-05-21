@@ -54,7 +54,7 @@ vlib_node_registration_t tap_inject_tx_node;
 vlib_node_registration_t tap_inject_neighbor_node;
 
 enum {
-  NEXT_NEIGHBOR_ARP,
+//  NEXT_NEIGHBOR_ARP,
   NEXT_NEIGHBOR_ICMP6,
 };
 
@@ -322,6 +322,8 @@ tap_inject_neighbor (vlib_main_t * vm,
           continue;
         }
 
+      next = ~0;
+
       /* Re-wind the buffer to the start of the Ethernet header. */
 #ifdef FLEXIWAN_FIX
       // The '-b->current_data' assumes that packet is regular L2-L3-APP packet.
@@ -347,7 +349,8 @@ tap_inject_neighbor (vlib_main_t * vm,
             ethernet_arp_header_t * arp = (void *)(eth + 1);
 
             if (arp->opcode == ntohs (ETHERNET_ARP_OPCODE_reply))
-              next = NEXT_NEIGHBOR_ARP;
+                vnet_feature_next (&next, b);
+//              next = NEXT_NEIGHBOR_ARP;
           }
         else if (ether_type == ETHERNET_TYPE_IP6)
           {
@@ -387,11 +390,28 @@ VLIB_REGISTER_NODE (tap_inject_neighbor_node) = {
   .name = "tap-inject-neighbor",
   .vector_size = sizeof (u32),
   .type = VLIB_NODE_TYPE_INTERNAL,
-  .n_next_nodes = 2,
+  // .n_next_nodes = 2,
+  // .next_nodes = {
+  //   [NEXT_NEIGHBOR_ARP] = "arp-input",
+  //   [NEXT_NEIGHBOR_ICMP6] = "icmp6-neighbor-solicitation",
+  // },
+  .n_next_nodes = 1,
   .next_nodes = {
-    [NEXT_NEIGHBOR_ARP] = "arp-input",
     [NEXT_NEIGHBOR_ICMP6] = "icmp6-neighbor-solicitation",
   },
+};
+
+/* Ensure the "arp-input -> vrrp4-arp-input -> tap-inject-neighbor" path.
+   No other nodes should be in the middle, so tap-inject-neighbor will
+   intercept and will push into Linux all ARP traffic except the VRRP packets!
+   Just like it was before we added support in VRRP.
+*/
+VNET_FEATURE_INIT (tap_inject_arp_feat_node, static) =
+{
+  .arc_name = "arp",
+  .node_name = "tap-inject-neighbor",
+  .runs_after = VNET_FEATURES ("vrrp4-arp-input"),
+  .runs_before = VNET_FEATURES ("arp-reply"),
 };
 
 
