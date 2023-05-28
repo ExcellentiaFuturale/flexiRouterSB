@@ -54,7 +54,9 @@ vlib_node_registration_t tap_inject_tx_node;
 vlib_node_registration_t tap_inject_neighbor_node;
 
 enum {
-//  NEXT_NEIGHBOR_ARP,
+#ifndef FLEXIWAN_FEATURE   /* enable VRRP */
+  NEXT_NEIGHBOR_ARP,
+#endif
   NEXT_NEIGHBOR_ICMP6,
 };
 
@@ -350,8 +352,9 @@ tap_inject_neighbor (vlib_main_t * vm,
 
             if (arp->opcode == ntohs (ETHERNET_ARP_OPCODE_reply))
                 vnet_feature_next (&next, b);
-//              next = NEXT_NEIGHBOR_ARP;
-          }
+#ifndef FLEXIWAN_FEATURE   /* enable VRRP */
+              next = NEXT_NEIGHBOR_ARP;
+#endif
         else if (ether_type == ETHERNET_TYPE_IP6)
           {
             ip6_header_t * ip = (void *)(eth + 1);
@@ -390,15 +393,18 @@ VLIB_REGISTER_NODE (tap_inject_neighbor_node) = {
   .name = "tap-inject-neighbor",
   .vector_size = sizeof (u32),
   .type = VLIB_NODE_TYPE_INTERNAL,
-  // .n_next_nodes = 2,
-  // .next_nodes = {
-  //   [NEXT_NEIGHBOR_ARP] = "arp-input",
-  //   [NEXT_NEIGHBOR_ICMP6] = "icmp6-neighbor-solicitation",
-  // },
+#ifndef FLEXIWAN_FEATURE   /* enable VRRP */
+  .n_next_nodes = 2,
+  .next_nodes = {
+    [NEXT_NEIGHBOR_ARP] = "arp-input",
+    [NEXT_NEIGHBOR_ICMP6] = "icmp6-neighbor-solicitation",
+  },
+#else
   .n_next_nodes = 1,
   .next_nodes = {
     [NEXT_NEIGHBOR_ICMP6] = "icmp6-neighbor-solicitation",
   },
+#endif /*#ifndef FLEXIWAN_FEATURE*/
 };
 
 /* Ensure the "arp-input -> vrrp4-arp-input -> tap-inject-neighbor" path.

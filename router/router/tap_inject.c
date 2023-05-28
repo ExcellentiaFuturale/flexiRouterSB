@@ -25,6 +25,9 @@
  *     interface before being put on wire
  *   - show tap-inject [name|tap|sw_if_index]: dump tap-inject info for specific interface
  *   - handle no-vppsb flag added in the VPP to enable VPPSB to ignore interfaces
+ *   - don't route all ARP traffic directly to VPPSB. Instead, register VPPSB tap-neighbor
+ *     node within "arp" arc, enabling thus ARP traffic to pass the VRRP module
+ *     before reaching the VPPSB.
  */
 
 #include "tap_inject.h"
@@ -485,12 +488,8 @@ tap_inject_interface_add_del (struct vnet_main_t * vnet_main, u32 sw_if_index,
   tap_inject_enable ();
 
 #ifdef FLEXIWAN_FIX
-  if (add)
-      vnet_feature_enable_disable ("arp", "tap-inject-neighbor", sw_if_index, 1, 0, 0);
-  else
-      vnet_feature_enable_disable ("arp", "tap-inject-neighbor", sw_if_index, 0, 0, 0);
+  vnet_feature_enable_disable ("arp", "tap-inject-neighbor", sw_if_index, add, 0, 0);
 #endif /* FLEXIWAN_FIX */
-
 
 #ifdef FLEXIWAN_FIX
   // As of Dec-2019 we use loop0-bridge-l2gre_ipsec_tunnel and loop1-bridge-vxlan_tunnel
