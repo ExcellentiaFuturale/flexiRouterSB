@@ -351,10 +351,12 @@ tap_inject_neighbor (vlib_main_t * vm,
             ethernet_arp_header_t * arp = (void *)(eth + 1);
 
             if (arp->opcode == ntohs (ETHERNET_ARP_OPCODE_reply))
+#ifdef FLEXIWAN_FEATURE   /* enable VRRP */
                 vnet_feature_next (&next, b);
-#ifndef FLEXIWAN_FEATURE   /* enable VRRP */
+#else
               next = NEXT_NEIGHBOR_ARP;
 #endif
+          }
         else if (ether_type == ETHERNET_TYPE_IP6)
           {
             ip6_header_t * ip = (void *)(eth + 1);
