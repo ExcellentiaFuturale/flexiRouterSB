@@ -43,6 +43,7 @@
 #include <vnet/gre/gre.h>
 
 #ifdef FLEXIWAN_FIX
+#include <vlib/log.h>
 #include <vnet/udp/udp.h>
 #endif
 
@@ -321,6 +322,9 @@ tap_inject_enable (void)
 {
   vlib_main_t * vm = vlib_get_main ();
   tap_inject_main_t * im = tap_inject_get_main ();
+
+  if (log_main.default_syslog_log_level > VLIB_LOG_LEVEL_NOTICE)
+      im->flags |= TAP_INJECT_F_DEBUG_ENABLE;
 
   if (tap_inject_is_enabled ())
     return 0;
