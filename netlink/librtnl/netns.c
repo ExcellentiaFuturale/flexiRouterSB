@@ -129,6 +129,32 @@ static rtnl_mapping_t ns_routemap[] = {
   { .type = 0 }
 };
 
+#define ns_foreach_rta_strict                   \
+  _(RTA_DST, dst, 1)                            \
+  _(RTA_SRC, src, 0)                            \
+  _(RTA_VIA, via, 0)                            \
+  _(RTA_GATEWAY, gateway, 1)                    \
+  _(RTA_IIF, iif, 0)                            \
+  _(RTA_OIF, oif, 0)                            \
+  _(RTA_PREFSRC, prefsrc, 0)                    \
+  _(RTA_TABLE, table, 0)                        \
+  _(RTA_PRIORITY, priority, 0)                  \
+  _(RTA_CACHEINFO, cacheinfo, 0)                \
+  _(RTA_ENCAP, encap, 1)                        \
+  _(RTA_MULTIPATH, multipath, 0)
+
+static rtnl_mapping_t ns_routemap_strict[] = {
+#define _(t, e, u)                              \
+  {                                             \
+    .type = t, .unique = u,                     \
+    .offset = offsetof(ns_route_t, e),          \
+    .size = sizeof(((ns_route_t*)0)->e)         \
+  },
+  ns_foreach_rta_strict
+#undef _
+  { .type = 0 }
+};
+
 u8 *format_ns_route (u8 *s, va_list *args)
 {
   ns_route_t *r = va_arg(*args, ns_route_t *);
@@ -467,7 +493,7 @@ ns_rcv_link(netns_p *ns, struct nlmsghdr *hdr)
 }
 
 static ns_route_t *
-ns_get_route(netns_p *ns, struct rtmsg *rtm, struct rtattr *rtas[])
+ns_get_route(netns_p *ns, struct rtmsg *rtm, struct rtattr *rtas[], rtnl_mapping_t map[])
 {
   ns_route_t *route;
 
@@ -481,9 +507,12 @@ ns_get_route(netns_p *ns, struct rtmsg *rtm, struct rtattr *rtas[])
     .rtm_type = 0xff
   };
 
+  if (map == NULL)
+    map = ns_routemap;
+
   pool_foreach(route, ns->netns.routes) {
       if(mask_match(&route->rtm, rtm, &msg, sizeof(struct rtmsg)) &&
-         rtnl_entry_match(route, rtas, ns_routemap))
+         rtnl_entry_match(route, rtas, map))
         return route;
     };
   return NULL;
@@ -509,7 +538,7 @@ ns_rcv_route(netns_p *ns, struct nlmsghdr *hdr)
 #ifdef RTNL_CHECK
   rtnl_entry_check(rtas, RTA_MAX + 1, ns_routemap, "route");
 #endif
-  route = ns_get_route(ns, rtm, rtas);
+  route = ns_get_route(ns, rtm, rtas, NULL /*map*/);
 
   if (hdr->nlmsg_type == RTM_DELROUTE) {
     if (!route)
@@ -543,6 +572,30 @@ ns_rcv_route(netns_p *ns, struct nlmsghdr *hdr)
       return -4;
     }
   }
+
+  /* When user modifies metric for static interface in netplan and invokes "netplan apply",
+     kernel will send RTM_NEWROUTE message with (NLM_F_EXCL|NLM_F_CREATE) flags only.
+     No RTM_DELROUTE before it, no NLM_F_REPLACE flag in RTM_NEWROUTE.
+     As we use prefix and metric as a key to search for existing route,
+     we will not find this route with udpated metric in NS database.
+     As a result, new route will be added to NS database, and it will be ignored
+     by VPP FIB, as FIB does not consider metric as a part of key.
+     To overcome this problem we detect such situation and simulate RTM_DELROUTE
+     message. Note, there is no need to do same for DHCP interfaces, as for them
+     the "netplan apply" invokes DHCP renegotiation. As a result, the RTM_DELROUTE
+     is generated for them.
+  */
+  if (hdr->nlmsg_type == RTM_NEWROUTE  &&  rtm->rtm_protocol==RTPROT_STATIC && route == 0)
+  {
+    route = ns_get_route(ns, rtm, rtas, ns_routemap_strict);
+    if (route)
+    {
+      netns_notify(ns, route, NETNS_TYPE_ROUTE, NETNS_F_DEL);
+      pool_put(ns->netns.routes, route);
+      route = 0;
+    }
+  }
+
 #endif
 
   if (!route) {
