@@ -324,7 +324,10 @@ tap_inject_enable (void)
   tap_inject_main_t * im = tap_inject_get_main ();
 
   if (log_main.default_syslog_log_level > VLIB_LOG_LEVEL_NOTICE)
+  {
       im->flags |= TAP_INJECT_F_DEBUG_ENABLE;
+      rtnl_enable_debug(1);
+  }
 
   if (tap_inject_is_enabled ())
     return 0;

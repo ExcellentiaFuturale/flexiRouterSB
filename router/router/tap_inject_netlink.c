@@ -273,9 +273,10 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
 
       if (tap_inject_debug_is_enabled())
       {
-        clib_warning("sw_if_index %u, %U via %U, is_del %u", sw_if_index,
+        clib_warning("sw_if_index %u, %U via %U, priority=%d, is_del %u", sw_if_index,
                      format_ip4_address, &prefix.fp_addr.ip4,
-                     format_ip4_address, &rpath.frp_addr.ip4, is_del);
+                     format_ip4_address, &rpath.frp_addr.ip4, priority,
+                     is_del);
       }
 
       if(*stack != 0) {

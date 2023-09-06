@@ -420,7 +420,7 @@ ns_rcv_link(netns_p *ns, struct nlmsghdr *hdr)
   if((datalen > NLMSG_ALIGN(sizeof(*ifi))) &&
      rtnl_parse_rtattr(rtas, IFLA_MAX, IFLA_RTA(ifi),
                        IFLA_PAYLOAD(hdr))) {
-    return -1;
+    return -2;
   }
 #ifdef RTNL_CHECK
   rtnl_entry_check(rtas, IFLA_MAX + 1, ns_ifmap, "link");
@@ -447,7 +447,7 @@ ns_rcv_link(netns_p *ns, struct nlmsghdr *hdr)
 
   if (hdr->nlmsg_type == RTM_DELLINK) {
     if (!link)
-      return -1;
+      return -3;
     pool_put(ns->netns.links, link);
     netns_notify(ns, link, NETNS_TYPE_LINK, NETNS_F_DEL);
     return 0;
@@ -504,7 +504,7 @@ ns_rcv_route(netns_p *ns, struct nlmsghdr *hdr)
   if((datalen > NLMSG_ALIGN(sizeof(*rtm))) &&
      rtnl_parse_rtattr(rtas, RTA_MAX, RTM_RTA(rtm),
                        RTM_PAYLOAD(hdr))) {
-    return -1;
+    return -2;
   }
 #ifdef RTNL_CHECK
   rtnl_entry_check(rtas, RTA_MAX + 1, ns_routemap, "route");
@@ -513,7 +513,10 @@ ns_rcv_route(netns_p *ns, struct nlmsghdr *hdr)
 
   if (hdr->nlmsg_type == RTM_DELROUTE) {
     if (!route)
-      return -1;
+    {
+      clib_warning("route to be deleted not found\n%U", format_rtnl_msg, hdr);
+      return -3;
+    }
 
     pool_put(ns->netns.routes, route);
     netns_notify(ns, route, NETNS_TYPE_ROUTE, NETNS_F_DEL);
@@ -535,7 +538,9 @@ ns_rcv_route(netns_p *ns, struct nlmsghdr *hdr)
        * Block adding route that looks exactly same to VPP FIB.
        * For multipath routes use the RTA_MULTIPATH attribute.
        */
-      return -1;
+      clib_warning("route to be added exist - nlmsg: %U route: %U)",
+        format_rtnl_msg, hdr, format_ns_route, route);
+      return -4;
     }
   }
 #endif
@@ -588,7 +593,7 @@ ns_rcv_addr(netns_p *ns, struct nlmsghdr *hdr)
   if((datalen > NLMSG_ALIGN(sizeof(*ifaddr))) &&
      rtnl_parse_rtattr(rtas, IFA_MAX, IFA_RTA(ifaddr),
                        IFA_PAYLOAD(hdr))) {
-    return -1;
+    return -2;
   }
 #ifdef RTNL_CHECK
   rtnl_entry_check(rtas, IFA_MAX + 1, ns_addrmap, "addr");
@@ -597,7 +602,7 @@ ns_rcv_addr(netns_p *ns, struct nlmsghdr *hdr)
 
   if (hdr->nlmsg_type == RTM_DELADDR) {
     if (!addr)
-      return -1;
+      return -3;
     pool_put(ns->netns.addresses, addr);
     netns_notify(ns, addr, NETNS_TYPE_ADDR, NETNS_F_DEL);
     return 0;
@@ -651,7 +656,7 @@ ns_rcv_neigh(netns_p *ns, struct nlmsghdr *hdr)
   if((datalen > NLMSG_ALIGN(sizeof(*nd))) &&
      rtnl_parse_rtattr(rtas, NDA_MAX, NDA_RTA(nd),
                        NDA_PAYLOAD(hdr))) {
-    return -1;
+    return -2;
   }
 #ifdef RTNL_CHECK
   rtnl_entry_check(rtas, NDA_MAX + 1, ns_neighmap, "nd");
@@ -660,7 +665,7 @@ ns_rcv_neigh(netns_p *ns, struct nlmsghdr *hdr)
 
   if (hdr->nlmsg_type == RTM_DELNEIGH) {
     if (!neigh)
-      return -1;
+      return -3;
     pool_put(ns->netns.neighbors, neigh);
     netns_notify(ns, neigh, NETNS_TYPE_NEIGH, NETNS_F_DEL);
     return 0;
@@ -717,62 +722,58 @@ ns_recv_error(rtnl_error_t err, uword o)
     vec_free(indexes);
 }
 
-static const char*
-ns_recv_rtnl_str(struct nlmsghdr *hdr)
-{
-  switch (hdr->nlmsg_type) {
-  case RTM_NEWROUTE:
-    return "RTM_NEWROUTE";
-  case RTM_DELROUTE:
-    return "RTM_DELROUTE";
-  case RTM_NEWLINK:
-    return "RTM_NEWLINK";
-  case RTM_DELLINK:
-    return "RTM_DELLINK";
-  case RTM_NEWADDR:
-    return "RTM_NEWADDR";
-  case RTM_DELADDR:
-    return "RTM_DELADDR";
-  case RTM_NEWNEIGH:
-    return "RTM_NEWNEIGH";
-  case RTM_DELNEIGH:
-    return "RTM_DELNEIGH";
-  default:
-    return("UNKNOWN");
-    break;
-  }
-}
-
 static void
 ns_recv_rtnl(struct nlmsghdr *hdr, uword o)
 {
   netns_p *ns = &netns_main.netnss[o];
+  int ret = 0;
 
   if(rtnl_debug_is_enabled()) {
-    clib_warning("%s(%u)", ns_recv_rtnl_str(hdr), hdr->nlmsg_type);
+    clib_warning("%U", format_rtnl_msg, hdr);
   }
 
   switch (hdr->nlmsg_type) {
   case RTM_NEWROUTE:
   case RTM_DELROUTE:
-    ns_rcv_route(ns, hdr);
+    ret = ns_rcv_route(ns, hdr);
     break;
   case RTM_NEWLINK:
   case RTM_DELLINK:
-    ns_rcv_link(ns, hdr);
+    ret = ns_rcv_link(ns, hdr);
     break;
   case RTM_NEWADDR:
   case RTM_DELADDR:
-    ns_rcv_addr(ns, hdr);
+    ret = ns_rcv_addr(ns, hdr);
     break;
   case RTM_NEWNEIGH:
   case RTM_DELNEIGH:
-    ns_rcv_neigh(ns, hdr);
+    ret = ns_rcv_neigh(ns, hdr);
     break;
   default:
     clib_warning("unknown rtnl type %d", hdr->nlmsg_type);
     break;
   }
+
+  if (ret) {
+    clib_warning("%U failed: %d", format_rtnl_msg_type, hdr, ret);
+  }
+}
+
+int rtnl_msg_to_ns_route(struct nlmsghdr* hdr, ns_route_t* route)
+{
+  struct rtmsg*  rtm               = NLMSG_DATA(hdr);
+  struct rtattr* rtas[RTA_MAX + 1] = {};
+  int            ret;
+
+  memset(route, 0, sizeof(*route));
+  ret = rtnl_parse_rtattr(rtas, RTA_MAX, RTM_RTA(rtm), RTM_PAYLOAD(hdr));
+  if (ret)
+      return ret;
+  ret = rtnl_entry_set(route, rtas, ns_routemap, 1);
+  if (ret)
+      return ret;
+  route->rtm = *rtm;
+  return 0;
 }
 
 static void

@@ -170,4 +170,7 @@ u8 *format_ns_flags(u8 *s, va_list *args);
 
 void rtnl_enable_debug(int enable);
 
+int rtnl_msg_to_ns_route(struct nlmsghdr* hdr, ns_route_t* route);
+
+
 #endif
