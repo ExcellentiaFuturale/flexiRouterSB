@@ -110,6 +110,124 @@ u8 *format_rtnl_nsname2path(u8 *s, va_list *args)
   }
 }
 
+u8* format_rtnl_msg_type(u8 *s, va_list *args)
+{
+  struct nlmsghdr *hdr = va_arg(*args, struct nlmsghdr *);
+  switch (hdr->nlmsg_type) {
+  case RTM_NEWROUTE:
+    s = format(s, "RTM_NEWROUTE");
+    break;
+  case RTM_DELROUTE:
+    s = format(s, "RTM_DELROUTE");
+    break;
+  case RTM_NEWLINK:
+    s = format(s, "RTM_NEWLINK");
+    break;
+  case RTM_DELLINK:
+    s = format(s, "RTM_DELLINK");
+    break;
+  case RTM_NEWADDR:
+    s = format(s, "RTM_NEWADDR");
+    break;
+  case RTM_DELADDR:
+    s = format(s, "RTM_DELADDR");
+    break;
+  case RTM_NEWNEIGH:
+    s = format(s, "RTM_NEWNEIGH");
+    break;
+  case RTM_DELNEIGH:
+    s = format(s, "RTM_DELNEIGH");
+    break;
+  default:
+    s = format(s, "RTM_DELNEIGH");
+  }
+  return s;
+}
+
+static
+u8 *format_rt_flags(u8 *s, va_list *args) {
+  unsigned rtm_flags = va_arg(*args, unsigned);
+  if (rtm_flags & RTM_F_NOTIFY)
+    s = format(s, "NOTIFY ");
+  if (rtm_flags & RTM_F_CLONED)
+    s = format(s, "RTM_F_CLONED ");
+  if (rtm_flags & RTM_F_EQUALIZE)
+    s = format(s, "RTM_F_EQUALIZE ");
+  if (rtm_flags & RTM_F_PREFIX)
+    s = format(s, "RTM_F_PREFIX ");
+  if (rtm_flags & RTM_F_LOOKUP_TABLE)
+    s = format(s, "RTM_F_LOOKUP_TABLE ");
+  if (rtm_flags & RTM_F_FIB_MATCH)
+    s = format(s, "RTM_F_FIB_MATCH ");
+  return s;
+}
+
+u8 *format_rtmsg(u8 *s, va_list *args)
+{
+  struct nlmsghdr*  hdr    = va_arg(*args, struct nlmsghdr *);
+  struct rtmsg*     rtm    = NLMSG_DATA(hdr);
+  size_t            datalen;
+  u8*               s_protocol;
+  uword             family;
+  int               ret;
+  ns_route_t        route;
+
+  datalen = hdr->nlmsg_len - NLMSG_ALIGN(sizeof(*hdr));
+  if(datalen < sizeof(*rtm)) {
+    s = format(s, "!!! corrupted NetLink MSG !!!: hdr->nlmsg_len=%d less than (sizeof(nlmsghdr)=%d + sizeof(struct rtmsg)=%d",
+          hdr->nlmsg_len, sizeof(*hdr), sizeof(struct rtmsg));
+    return s;
+  }
+
+
+  switch (rtm->rtm_protocol)
+  {
+    case RTPROT_UNSPEC:   s_protocol = (u8*)"RTPROT_UNSPEC";   break;
+    case RTPROT_REDIRECT: s_protocol = (u8*)"RTPROT_REDIRECT"; break;
+    case RTPROT_KERNEL:   s_protocol = (u8*)"RTPROT_KERNEL";   break;
+    case RTPROT_BOOT:     s_protocol = (u8*)"RTPROT_BOOT";     break;
+    case RTPROT_STATIC:   s_protocol = (u8*)"RTPROT_STATIC";   break;
+    case RTPROT_DHCP:     s_protocol = (u8*)"RTPROT_DHCP";     break;
+    default:
+      s_protocol = (u8*)"not-supported";
+  }
+
+  family = (int)rtm->rtm_family;
+
+  s = format(s, "rtmsg: family=%U, dst_len=%d, src_len=%d, tos=%u, table=%d, protocol=%s, scope=%d, type=%d, flags=%U",
+          format_address_family, family, rtm->rtm_dst_len, rtm->rtm_src_len, rtm->rtm_tos, rtm->rtm_table,
+          s_protocol, rtm->rtm_scope, rtm->rtm_type, format_rt_flags, rtm->rtm_flags);
+  if (datalen <= NLMSG_ALIGN(sizeof(*rtm)))
+    return s;
+
+  ret = rtnl_msg_to_ns_route(hdr, &route);
+  if (ret) {
+      s = format(s, "!!! failed to parse attributes !!!: %d\n", ret);
+      return s;
+  }
+  s = format(s, " rtattrs: %U", format_ns_route, &route);
+  return s;
+}
+
+u8 *format_rtnl_msg(u8 *s, va_list *args)
+{
+  struct nlmsghdr*  hdr = va_arg(*args, struct nlmsghdr *);
+
+  s = format(s, "nlmsghdr: len=%d, type=%u, flags=%x, seq=%u, pid=%u ",
+          hdr->nlmsg_len, hdr->nlmsg_type, hdr->nlmsg_flags, hdr->nlmsg_seq, hdr->nlmsg_pid);
+
+  switch (hdr->nlmsg_type)
+  {
+      case RTM_NEWROUTE:
+      case RTM_DELROUTE:
+        s = format(s, "nlmsg: %U: %U", format_rtnl_msg_type, hdr, format_rtmsg, hdr);
+        break;
+      default:
+        break;
+  }
+  return s;
+}
+
 static_always_inline void
 rtnl_schedule_timeout(rtnl_ns_t *ns, f64 when)
 {

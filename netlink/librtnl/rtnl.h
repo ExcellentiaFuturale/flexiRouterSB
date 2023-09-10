@@ -56,5 +56,7 @@ int rtnl_exec_in_namespace(u32 handle, void *(*fn)(void *), void *arg, void **re
 int rtnl_exec_in_namespace_by_name(char *nsname, void *(*fn)(void *), void *arg, void **ret);
 
 u8 *format_rtnl_nsname2path(u8 *s, va_list *args);
+u8 *format_rtnl_msg_type(u8 *s, va_list *args);
+u8 *format_rtnl_msg(u8 *s, va_list *args);
 
 #endif
