@@ -113,6 +113,10 @@ typedef struct {
 #endif /* FLEXIWAN_FEATURE - enable_acl_based_classification */
   u32 * type;
   u32 ip4_input_node_index;
+
+#ifdef FLEXIWAN_FEATURE
+  u32* vrrp_vr_ip4s;
+#endif /* FLEXIWAN_FEATURE */
 } tap_inject_main_t;
 
 
