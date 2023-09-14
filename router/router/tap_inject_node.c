@@ -60,6 +60,12 @@ enum {
   NEXT_NEIGHBOR_ICMP6,
 };
 
+#ifdef FLEXIWAN_FEATURE   /* enable VRRP - redirect VR IP ICMP back to VPP */
+enum {
+  NEXT_TX_IP4_ICMP_INPUT,
+};
+#endif
+
 /**
  * @brief Dynamically added tap_inject DPO type
  */
@@ -170,6 +176,37 @@ tap_inject_tap_send_buffer (int fd, vlib_buffer_t * b)
 }
 #endif /* FLEXIWAN_FIX */
 
+#ifdef FLEXIWAN_FIX
+static int
+is_vrrp_buffer(vlib_buffer_t * b)
+{
+  ethernet_header_t * eth        = vlib_buffer_get_current (b);
+  u16                 ether_type = htons (eth->type);
+  ip4_header_t *      ip;
+  icmp46_header_t *   icmp;
+  tap_inject_main_t * im;
+  u32                 index;
+
+  if (ether_type != ETHERNET_TYPE_IP4)
+    return 0;
+
+  ip = (ip4_header_t *)(eth + 1);
+  if (ip->protocol != IP_PROTOCOL_ICMP)
+    return 0;
+
+  icmp = (icmp46_header_t *)(ip + 1);
+  if (icmp->type != ICMP4_echo_request)
+    return 0;
+
+  im    = tap_inject_get_main ();
+  index = vec_search (im->vrrp_vr_ip4s, ip->dst_address.as_u32);
+  if (index == ~0)
+    return 0;
+
+  return 1;
+}
+#endif /*#ifdef FLEXIWAN_FIX*/
+
 static uword
 tap_inject_tx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f)
 {
@@ -177,12 +214,20 @@ tap_inject_tx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f)
   u32 * pkts;
   u32 fd;
   u32 i;
+#ifdef FLEXIWAN_FIX
+  u32 bi;
+  u32 next_index = node->cached_next_index;
+  u32 next;
+  u32 n_left;
+  u32 * to_next;
+#endif /*#ifdef FLEXIWAN_FIX*/
 
   pkts = vlib_frame_vector_args (f);
 
   for (i = 0; i < f->n_vectors; ++i)
     {
-      b = vlib_get_buffer (vm, pkts[i]);
+      bi = pkts[i];
+      b = vlib_get_buffer (vm, bi);
 
       fd = tap_inject_lookup_tap_fd (vnet_buffer (b)->sw_if_index[VLIB_RX]);
       if (fd == ~0)
@@ -207,11 +252,30 @@ tap_inject_tx (vlib_main_t * vm, vlib_node_runtime_t * node, vlib_frame_t * f)
         vlib_buffer_advance (b, -sizeof(ethernet_header_t));
       }
 
+      /* Packets that are designated to VRRP virtual IP should not be pushed
+         into Linux, as the last will discard them. Linux is unaware of virtual
+         IP and multicast MAC address managed by the VRRP plugin of VPP.
+         Push these packets back into VPP.
+      */
+      if (is_vrrp_buffer(b))
+      {
+        next = NEXT_TX_IP4_ICMP_INPUT;
+        vlib_buffer_advance (b, sizeof (ethernet_header_t));
+        vlib_get_next_frame (vm, node, next_index, to_next, n_left);
+        *(to_next++) = bi;
+        --n_left;
+
+        vlib_validate_buffer_enqueue_x1 (vm, node, next_index, to_next,
+                                        n_left, bi, next);
+        vlib_put_next_frame (vm, node, next_index, n_left);
+        continue;
+      }
+
       tap_inject_tap_send_buffer (vm, fd, b);
 #endif /* FLEXIWAN_FIX */
+      vlib_buffer_free (vm, &bi, 1);
     }
 
-  vlib_buffer_free (vm, pkts, f->n_vectors);
   return f->n_vectors;
 }
 
@@ -220,6 +284,12 @@ VLIB_REGISTER_NODE (tap_inject_tx_node) = {
   .name = "tap-inject-tx",
   .vector_size = sizeof (u32),
   .type = VLIB_NODE_TYPE_INTERNAL,
+#ifdef FLEXIWAN_FEATURE   /* enable VRRP - redirect Virtual IP ICMP packets back to VPP */
+  .n_next_nodes = 1,
+  .next_nodes = {
+    [NEXT_TX_IP4_ICMP_INPUT] = "ip4-icmp-input",
+  },
+#endif /*#ifndef FLEXIWAN_FEATURE*/
 };
 
 #ifdef FLEXIWAN_FIX
@@ -794,6 +864,10 @@ tap_inject_init (vlib_main_t * vm)
   im->classifier_acls_fn = vlib_get_plugin_symbol
     ("classifier_acls_plugin.so", "classifier_acls_classify_packet_api");
 #endif /* FLEXIWAN_FEATURE - enable_acl_based_classification */
+
+#ifdef FLEXIWAN_FEATURE
+  im->vrrp_vr_ip4s = 0;
+#endif
 
   im->vlan_to_sw_if_index = hash_create (0, sizeof (u32));
 

@@ -45,6 +45,8 @@
 #ifdef FLEXIWAN_FIX
 #include <vlib/log.h>
 #include <vnet/udp/udp.h>
+#include <plugins/vrrp/vrrp.h>
+#include <dlfcn.h>
 #endif
 
 static tap_inject_main_t tap_inject_main;
@@ -299,6 +301,20 @@ tap_inject_enable_ip4_output (u32 sw_if_index, u32 enable)
 
 #endif /* FLEXIWAN_FEATURE */
 
+
+void vrrp_add_del_vr_ip_ip4(int is_add, ip4_address_t* a)
+{
+  tap_inject_main_t * im = tap_inject_get_main ();
+  if (is_add)
+    vec_add1(im->vrrp_vr_ip4s, a->as_u32);
+  else
+  {
+    u32 index = vec_search (im->vrrp_vr_ip4s, a->as_u32);
+    if (index != ~0)
+      vec_del1(im->vrrp_vr_ip4s, index);
+  }
+}
+
 /* *INDENT-OFF* */
 VLIB_PLUGIN_REGISTER () = {
     // .version = VPP_BUILD_VER, FIXME
@@ -333,6 +349,18 @@ tap_inject_enable (void)
     return 0;
 
   tap_inject_enable_netlink ();
+
+#ifdef FLEXIWAN_FIX
+  {
+    void (*func_vrrp_set_cb_vr_ip_add_del)(vrrp_add_del_vr_ip_ip4_cb, vrrp_add_del_vr_ip_ip6_cb);
+    func_vrrp_set_cb_vr_ip_add_del = vlib_get_plugin_symbol ("vrrp_plugin.so", "vrrp_set_cb_vr_ip_add_del");
+    if (!func_vrrp_set_cb_vr_ip_add_del)
+    {
+        return clib_error_return (0, "vlib_get_plugin_symbol(vrrp_plugin.so, vrrp_set_cb_vr_ip_add_del) failed");
+    }
+    func_vrrp_set_cb_vr_ip_add_del(vrrp_add_del_vr_ip_ip4, NULL);
+  }
+#endif /* FLEXIWAN_FIX */
 
   /* Only enable netlink? */
   if (im->flags & TAP_INJECT_F_CONFIG_NETLINK)
