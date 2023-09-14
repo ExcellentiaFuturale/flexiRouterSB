@@ -352,22 +352,13 @@ tap_inject_enable (void)
 
 #ifdef FLEXIWAN_FIX
   {
-    void* dl_handle;
     void (*func_vrrp_set_cb_vr_ip_add_del)(vrrp_add_del_vr_ip_ip4_cb, vrrp_add_del_vr_ip_ip6_cb);
-
-    dl_handle = dlopen("/usr/lib/x86_64-linux-gnu/vpp_plugins/vrrp_plugin.so", RTLD_LAZY);
-    if (!dl_handle)
-    {
-        return clib_error_return (0, "dlopen('/usr/lib/x86_64-linux-gnu/vpp_plugins/vrrp_plugin.so', RTLD_LAZY) failed");
-    }
-    *(void**)(&func_vrrp_set_cb_vr_ip_add_del) = dlsym(dl_handle, "vrrp_set_cb_vr_ip_add_del");
+    func_vrrp_set_cb_vr_ip_add_del = vlib_get_plugin_symbol ("vrrp_plugin.so", "vrrp_set_cb_vr_ip_add_del");
     if (!func_vrrp_set_cb_vr_ip_add_del)
     {
-        dlclose(dl_handle);
-        return clib_error_return (0, "dlsym(%p, 'vrrp_set_cb_vr_ip_add_del') failed", dl_handle);
+        return clib_error_return (0, "vlib_get_plugin_symbol(vrrp_plugin.so, vrrp_set_cb_vr_ip_add_del) failed");
     }
     func_vrrp_set_cb_vr_ip_add_del(vrrp_add_del_vr_ip_ip4, NULL);
-    dlclose(dl_handle);
   }
 #endif /* FLEXIWAN_FIX */
 
