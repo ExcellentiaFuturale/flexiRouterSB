@@ -240,12 +240,27 @@ get_mpls_label_stack(struct mpls_label *addr, u32* l)
 }
 
 static void
-add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_len,
+add_del_fib (u32 oif, unsigned char rtm_family, unsigned char rtm_dst_len,
              u8 *dst, struct mpls_label *encap, u8 *gateway, struct rtvia *via,
              u32 priority, u32 weight, int is_del)
 {
 /*#warning IPv6/MPLS is disabled for now (May-2020)*/
   if (rtm_family != AF_INET)
+    return;
+
+  u32 sw_if_index;
+  u32 new_sw_if_index;
+
+  sw_if_index = tap_inject_lookup_sw_if_index_from_tap_if_index (oif);
+  if (sw_if_index != ~0)
+  {
+    new_sw_if_index = tap_inject_map_interface_get(sw_if_index);
+    if (tap_inject_debug_is_enabled())
+      clib_warning("oif %u, sw_if_index %u, new_sw_if_index=%u", oif, sw_if_index, new_sw_if_index);
+    if (new_sw_if_index != ~0)
+      sw_if_index = new_sw_if_index;
+  }
+  else
     return;
 
   fib_route_path_t *rpaths = NULL;
@@ -335,7 +350,6 @@ add_del_fib (u32 sw_if_index, unsigned char rtm_family, unsigned char rtm_dst_le
 static void
 add_del_multipath_fib(ns_route_t * r, int is_del)
 {
-  u32 sw_if_index = 0;
   int attrlen = 0;
   u32 oif = 0;
   u8 gateway[16];
@@ -359,16 +373,7 @@ add_del_multipath_fib(ns_route_t * r, int is_del)
           memcpy(gateway, RTA_DATA(attr), RTA_PAYLOAD(attr));
         }
 
-      sw_if_index = tap_inject_lookup_sw_if_index_from_tap_if_index (oif);
-      if (sw_if_index == ~0)
-        return;
-
-      u32 new_sw_if_index = tap_inject_map_interface_get(sw_if_index);
-      if (new_sw_if_index != ~0) {
-        sw_if_index = new_sw_if_index;
-      }
-
-      add_del_fib(sw_if_index, r->rtm.rtm_family,
+      add_del_fib(oif, r->rtm.rtm_family,
                   r->rtm.rtm_dst_len, r->dst,
                   r->encap, gateway,
                   (struct rtvia *)r->via,
@@ -382,7 +387,6 @@ add_del_multipath_fib(ns_route_t * r, int is_del)
 static void
 add_del_route (ns_route_t * r, int is_del)
 {
-  u32 sw_if_index = 0;
   u32 weight = 1;
 
   if (r->multipath.length > 0)
@@ -391,16 +395,7 @@ add_del_route (ns_route_t * r, int is_del)
     }
   else
     {
-      sw_if_index = tap_inject_lookup_sw_if_index_from_tap_if_index (r->oif);
-      if (sw_if_index == ~0)
-        return;
-
-      u32 new_sw_if_index = tap_inject_map_interface_get(sw_if_index);
-      if (new_sw_if_index != ~0) {
-        sw_if_index = new_sw_if_index;
-      }
-
-      add_del_fib(sw_if_index, r->rtm.rtm_family,
+      add_del_fib(r->oif, r->rtm.rtm_family,
                   r->rtm.rtm_dst_len, r->dst,
                   r->encap, r->gateway,
                   (struct rtvia *)r->via,
