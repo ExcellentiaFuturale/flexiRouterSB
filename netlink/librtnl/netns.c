@@ -972,3 +972,30 @@ netns_init (vlib_main_t * vm)
 }
 
 VLIB_INIT_FUNCTION (netns_init);
+
+static clib_error_t *
+show_tap_inject_routes_cli (vlib_main_t * vm, unformat_input_t * input,
+                            vlib_cli_command_t * cmd)
+{
+  ns_route_t *route;
+  netns_main_t *nm = &netns_main;
+  netns_p *ns;
+  uint32_t i = 0;
+
+  pool_foreach(ns, nm->netnss)
+    {
+      pool_foreach(route, ns->netns.routes)
+      {
+        vlib_cli_output(vm, "[%u]: %U \n", i, format_ns_route, route);
+        i++;
+      }
+    }
+
+  return 0;
+}
+
+VLIB_CLI_COMMAND (show_tap_inject_routes_cmd, static) = {
+  .path = "show tap-inject routes",
+  .short_help = "show tap-inject routes",
+  .function = show_tap_inject_routes_cli,
+};
