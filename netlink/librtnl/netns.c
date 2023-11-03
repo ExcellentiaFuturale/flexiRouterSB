@@ -540,6 +540,10 @@ ns_rcv_route(netns_p *ns, struct nlmsghdr *hdr)
 #endif
   route = ns_get_route(ns, rtm, rtas, NULL /*map*/);
 
+  if (rtnl_debug_is_enabled() && route) {
+    clib_warning("found route: %U", format_ns_route, route);
+  }
+
   if (hdr->nlmsg_type == RTM_DELROUTE) {
     if (!route)
     {
