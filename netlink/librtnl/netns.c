@@ -506,7 +506,7 @@ ns_get_route(netns_p *ns, struct rtmsg *rtm, struct rtattr *rtas[], rtnl_mapping
     .rtm_dst_len = 0xff,
     .rtm_src_len = 0xff,
     .rtm_table = 0xff,
-    .rtm_protocol = 0xff,
+    .rtm_protocol = 0x00,   /*FLEXIWAN - Kernel and VPP FIB does not support identical rules with different protocols, so inform user of same route*/
     .rtm_type = 0xff
   };
 
@@ -563,6 +563,11 @@ ns_rcv_route(netns_p *ns, struct nlmsghdr *hdr)
       return -3;
     }
 
+    if (route->rtm.rtm_protocol != rtm->rtm_protocol) {
+      clib_warning("remove route with protocol %u, when received protocol %u",
+                   route->rtm.rtm_protocol, rtm->rtm_protocol);
+    }
+
     pool_put(ns->netns.routes, route);
     netns_notify(ns, route, NETNS_TYPE_ROUTE, NETNS_F_DEL);
     return 0;
@@ -573,6 +578,13 @@ ns_rcv_route(netns_p *ns, struct nlmsghdr *hdr)
   {
     if (hdr->nlmsg_flags & NLM_F_REPLACE)
     {
+      netns_notify(ns, route, NETNS_TYPE_ROUTE, NETNS_F_DEL);
+      pool_put(ns->netns.routes, route);
+      route = 0;
+    }
+    else if (route->rtm.rtm_protocol != rtm->rtm_protocol) {
+      clib_warning("replace route with protocol %u with new with protocol %u",
+                   route->rtm.rtm_protocol, rtm->rtm_protocol);
       netns_notify(ns, route, NETNS_TYPE_ROUTE, NETNS_F_DEL);
       pool_put(ns->netns.routes, route);
       route = 0;

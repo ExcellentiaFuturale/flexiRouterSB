@@ -188,6 +188,8 @@ u8 *format_rtmsg(u8 *s, va_list *args)
     case RTPROT_BOOT:     s_protocol = (u8*)"RTPROT_BOOT";     break;
     case RTPROT_STATIC:   s_protocol = (u8*)"RTPROT_STATIC";   break;
     case RTPROT_DHCP:     s_protocol = (u8*)"RTPROT_DHCP";     break;
+    case RTPROT_BGP:      s_protocol = (u8*)"RTPROT_BGP";      break;  /*uapi/linux/rtnetlink.h*/
+    case RTPROT_OSPF:     s_protocol = (u8*)"RTPROT_OSPF";     break;  /*uapi/linux/rtnetlink.h*/
     default:
       s_protocol = (u8*)"not-supported";
   }
