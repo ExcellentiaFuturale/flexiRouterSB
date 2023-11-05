@@ -174,6 +174,9 @@ u8 *format_ns_route (u8 *s, va_list *args)
     s = format(s, " table %d", r->table);
   if (r->priority)
     s = format(s, " priority %u", r->priority);
+  s = format(s, " encap");
+  for (u32 i=0; i<MPLS_STACK_DEPTH; i++)
+    s = format(s, " %u", r->encap[i]);
   return s;
 }
 
@@ -511,10 +514,23 @@ ns_get_route(netns_p *ns, struct rtmsg *rtm, struct rtattr *rtas[], rtnl_mapping
     map = ns_routemap;
 
   pool_foreach(route, ns->netns.routes) {
-      if(mask_match(&route->rtm, rtm, &msg, sizeof(struct rtmsg)) &&
-         rtnl_entry_match(route, rtas, map))
-        return route;
-    };
+      // if(mask_match(&route->rtm, rtm, &msg, sizeof(struct rtmsg)) &&
+      //    rtnl_entry_match(route, rtas, map))
+      //   return route;
+    // nnoww -temp code
+    if (!(mask_match(&route->rtm, rtm, &msg, sizeof(struct rtmsg))))
+    {
+      clib_warning("NNOWW: mask does not match for route: %U", format_ns_route, route);
+      continue;
+    }
+    if (!rtnl_entry_match(route, rtas, map))
+    {
+      clib_warning("NNOWW: entry does not match for route: %U", format_ns_route, route);
+      continue;
+    }
+    clib_warning("NNOWW: found route: %U", format_ns_route, route);
+    return route;
+  }
   return NULL;
 }
 
@@ -539,10 +555,6 @@ ns_rcv_route(netns_p *ns, struct nlmsghdr *hdr)
   rtnl_entry_check(rtas, RTA_MAX + 1, ns_routemap, "route");
 #endif
   route = ns_get_route(ns, rtm, rtas, NULL /*map*/);
-
-  if (rtnl_debug_is_enabled() && route) {
-    clib_warning("found route: %U", format_ns_route, route);
-  }
 
   if (hdr->nlmsg_type == RTM_DELROUTE) {
     if (!route)
@@ -571,7 +583,7 @@ ns_rcv_route(netns_p *ns, struct nlmsghdr *hdr)
        * Block adding route that looks exactly same to VPP FIB.
        * For multipath routes use the RTA_MULTIPATH attribute.
        */
-      clib_warning("route to be added exist - nlmsg: %U route: %U)",
+      clib_warning("route to be added exist: nlmsg=(%U), route=(%U)",
         format_rtnl_msg, hdr, format_ns_route, route);
       return -4;
     }

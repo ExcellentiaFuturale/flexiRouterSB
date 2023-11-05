@@ -194,9 +194,9 @@ u8 *format_rtmsg(u8 *s, va_list *args)
 
   family = (int)rtm->rtm_family;
 
-  s = format(s, "rtmsg: family=%U, dst_len=%d, src_len=%d, tos=%u, table=%d, protocol=%s, scope=%d, type=%d, flags=%U",
+  s = format(s, "rtmsg: family=%U, dst_len=%d, src_len=%d, tos=%u, table=%d, protocol=%s/%d, scope=%d, type=%d, flags=%U",
           format_address_family, family, rtm->rtm_dst_len, rtm->rtm_src_len, rtm->rtm_tos, rtm->rtm_table,
-          s_protocol, rtm->rtm_scope, rtm->rtm_type, format_rt_flags, rtm->rtm_flags);
+          s_protocol, rtm->rtm_protocol, rtm->rtm_scope, rtm->rtm_type, format_rt_flags, rtm->rtm_flags);
   if (datalen <= NLMSG_ALIGN(sizeof(*rtm)))
     return s;
 
