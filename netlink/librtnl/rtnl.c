@@ -162,6 +162,11 @@ u8 *format_rt_flags(u8 *s, va_list *args) {
   return s;
 }
 
+#if !defined(RTPROT_BGP)   /*keep compatibility with kernels pre-5.4*/
+#define RTPROT_BGP  186
+#define RTPROT_OSPF 188
+#endif
+
 u8 *format_rtmsg(u8 *s, va_list *args)
 {
   struct nlmsghdr*  hdr    = va_arg(*args, struct nlmsghdr *);
