@@ -174,6 +174,11 @@ u8 *format_ns_route (u8 *s, va_list *args)
     s = format(s, " table %d", r->table);
   if (r->priority)
     s = format(s, " priority %u", r->priority);
+  if (is_nonzero(r->encap)) {
+    s = format(s, " encap");
+    for (u32 i=0; i<MPLS_STACK_DEPTH; i++)
+      s = format(s, " %u", r->encap[i]);
+  }
   return s;
 }
 
@@ -503,7 +508,7 @@ ns_get_route(netns_p *ns, struct rtmsg *rtm, struct rtattr *rtas[], rtnl_mapping
     .rtm_dst_len = 0xff,
     .rtm_src_len = 0xff,
     .rtm_table = 0xff,
-    .rtm_protocol = 0xff,
+    .rtm_protocol = 0x00,   /*FLEXIWAN - Kernel and VPP FIB does not support identical rules with different protocols, so inform user of same route*/
     .rtm_type = 0xff
   };
 
@@ -514,7 +519,7 @@ ns_get_route(netns_p *ns, struct rtmsg *rtm, struct rtattr *rtas[], rtnl_mapping
       if(mask_match(&route->rtm, rtm, &msg, sizeof(struct rtmsg)) &&
          rtnl_entry_match(route, rtas, map))
         return route;
-    };
+  }
   return NULL;
 }
 
@@ -540,15 +545,16 @@ ns_rcv_route(netns_p *ns, struct nlmsghdr *hdr)
 #endif
   route = ns_get_route(ns, rtm, rtas, NULL /*map*/);
 
-  if (rtnl_debug_is_enabled() && route) {
-    clib_warning("found route: %U", format_ns_route, route);
-  }
-
   if (hdr->nlmsg_type == RTM_DELROUTE) {
     if (!route)
     {
       clib_warning("route to be deleted not found\n%U", format_rtnl_msg, hdr);
       return -3;
+    }
+
+    if (route->rtm.rtm_protocol != rtm->rtm_protocol) {
+      clib_warning("remove route with protocol %u, when received protocol %u",
+                   route->rtm.rtm_protocol, rtm->rtm_protocol);
     }
 
     pool_put(ns->netns.routes, route);
@@ -565,13 +571,20 @@ ns_rcv_route(netns_p *ns, struct nlmsghdr *hdr)
       pool_put(ns->netns.routes, route);
       route = 0;
     }
+    else if (route->rtm.rtm_protocol != rtm->rtm_protocol) {
+      clib_warning("replace route with protocol %u with new with protocol %u",
+                   route->rtm.rtm_protocol, rtm->rtm_protocol);
+      netns_notify(ns, route, NETNS_TYPE_ROUTE, NETNS_F_DEL);
+      pool_put(ns->netns.routes, route);
+      route = 0;
+    }
     else
     {
       /*
        * Block adding route that looks exactly same to VPP FIB.
        * For multipath routes use the RTA_MULTIPATH attribute.
        */
-      clib_warning("route to be added exist - nlmsg: %U route: %U)",
+      clib_warning("route to be added exist: nlmsg=(%U), route=(%U)",
         format_rtnl_msg, hdr, format_ns_route, route);
       return -4;
     }

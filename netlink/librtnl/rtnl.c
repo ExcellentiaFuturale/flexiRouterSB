@@ -188,15 +188,17 @@ u8 *format_rtmsg(u8 *s, va_list *args)
     case RTPROT_BOOT:     s_protocol = (u8*)"RTPROT_BOOT";     break;
     case RTPROT_STATIC:   s_protocol = (u8*)"RTPROT_STATIC";   break;
     case RTPROT_DHCP:     s_protocol = (u8*)"RTPROT_DHCP";     break;
+    case RTPROT_BGP:      s_protocol = (u8*)"RTPROT_BGP";      break;  /*uapi/linux/rtnetlink.h*/
+    case RTPROT_OSPF:     s_protocol = (u8*)"RTPROT_OSPF";     break;  /*uapi/linux/rtnetlink.h*/
     default:
       s_protocol = (u8*)"not-supported";
   }
 
   family = (int)rtm->rtm_family;
 
-  s = format(s, "rtmsg: family=%U, dst_len=%d, src_len=%d, tos=%u, table=%d, protocol=%s, scope=%d, type=%d, flags=%U",
+  s = format(s, "rtmsg: family=%U, dst_len=%d, src_len=%d, tos=%u, table=%d, protocol=%s/%d, scope=%d, type=%d, flags=%U",
           format_address_family, family, rtm->rtm_dst_len, rtm->rtm_src_len, rtm->rtm_tos, rtm->rtm_table,
-          s_protocol, rtm->rtm_scope, rtm->rtm_type, format_rt_flags, rtm->rtm_flags);
+          s_protocol, rtm->rtm_protocol, rtm->rtm_scope, rtm->rtm_type, format_rt_flags, rtm->rtm_flags);
   if (datalen <= NLMSG_ALIGN(sizeof(*rtm)))
     return s;
 
