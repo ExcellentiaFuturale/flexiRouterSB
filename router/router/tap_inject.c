@@ -669,7 +669,6 @@ tap_inject_vlan_add (struct vnet_main_t * vnet_main, u32 sw_if_index)
     return err;
 
   tap_inject_insert_tap(sw_if_index, ~0, if_index, name);
-  tap_inject_map_interface_set(parent_sw_if_index, sw_if_index);
   type = tap_inject_type_get(parent_sw_if_index);
   tap_inject_type_set(sw_if_index, type | TAP_INJECT_VLAN | outer_vlan << 16);
   tap_inject_vlan_sw_if_index_add_del(outer_vlan, parent_sw_if_index, sw_if_index, 1);
