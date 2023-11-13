@@ -163,6 +163,7 @@ static inline u32
 tap_inject_type_check (u32 sw_if_index, u32 type)
 {
   tap_inject_main_t * im = tap_inject_get_main ();
+  vec_validate_init_empty (im->type, sw_if_index, 0);
   return (im->type[sw_if_index] & type) == type;
 }
 
